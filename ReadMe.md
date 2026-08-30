@@ -1,0 +1,561 @@
+# dbus-maxxfan
+
+Venus OS driver for the MaxxAir MaxxFan Deluxe roof fan, controlled over infrared.
+Venus-OS-Treiber für den MaxxAir MaxxFan Deluxe, gesteuert über Infrarot.
+
+**[English](#english) · [Deutsch](#deutsch)**
+
+---
+
+## English
+
+Publishes a MaxxAir MaxxFan Deluxe on the Venus OS D-Bus as
+`com.victronenergy.switch`, so the fan gets its own card in the switch pane of
+the GX display, the remote console and VRM — even though it has no data
+connection of any kind.
+
+Commands reach the fan the same way the hand held remote sends them: as infrared.
+An Arduino with an infrared LED, running the sketch in [`arduino/`](arduino/),
+hangs on a USB serial port of the GX device and does the transmitting.
+
+### What the driver publishes
+
+One card named *MaxxFan*, holding eight controls:
+
+| Output | Type | Content |
+|---|---|---|
+| `fan` | toggle | Fan on / off |
+| `speed` | stepped switch | 10 … 100 %, in steps of ten |
+| `direction` | dropdown | Intake / Exhaust |
+| `cover` | toggle | Lid open / closed |
+| `mode` | dropdown | Manual / Auto (thermostat) |
+| `setpoint` | temperature setpoint | −2 … 37 °C, the thermostat's target |
+| `resend` | momentary | Transmit the current state again |
+| `beep` | momentary | Make the fan beep twice, to find it or test the path |
+
+Every control also appears under `/SwitchableOutput/<name>/…` on D-Bus, so
+Node-RED and MQTT can read and write the same values.
+
+The type of each control can be changed from the GX device page, and the change
+is stored — if the stepped switch for the speed does not suit you, set it to a
+slider or a dimmer instead. `ValidTypes` lists what each output allows.
+
+### Infrared only goes one way
+
+The fan never answers. Everything the GX display shows is **the state the driver
+last transmitted**, not a reading. If somebody uses the hand held remote, the two
+drift apart until the next command from the GX — which, because the protocol
+carries the complete state in every packet, immediately puts the fan back in
+step with the display.
+
+Two consequences worth knowing:
+
+- **The driver does not transmit at startup.** Re-sending the stored state on
+  every reboot of the GX would start a fan that somebody deliberately switched
+  off by hand. The state is published, not sent.
+- **A periodic refresh runs every 15 minutes** (`REFRESH_S` in the driver) and
+  re-sends the current state, so a fan operated by hand comes back under GX
+  control on its own. Set `REFRESH_S = 0` to switch that off and use the
+  *Resend* button instead.
+
+Because the protocol has no "speed only" message, every change transmits all
+eight fields. Changes are collected for 600 ms first, so dragging the speed
+control produces one packet rather than twenty.
+
+### Installation
+
+#### With SetupHelper (recommended)
+
+Install [SetupHelper](https://github.com/kwindrem/SetupHelper), then in the GX
+menu go to *Settings → Package manager → Inactive packages → new* and enter:
+
+| Field | Value |
+|---|---|
+| Package name | `dbus-maxxfan` |
+| GitHub user | `mcgyver78` |
+| GitHub branch or tag | `latest` |
+
+Then *Proceed* → *Install*.
+
+#### Manually
+
+```bash
+cd /data
+git clone https://github.com/mcgyver78/dbus-maxxfan.git
+/data/dbus-maxxfan/setup
+```
+
+### Requirements
+
+- Venus OS v3.70 or newer with the **new user interface** enabled — the switch
+  pane is a gui-v2 feature. On the classic interface the device appears in the
+  device list, but its controls are not drawn.
+- Python 3 and `pyserial`, both shipped with Venus OS
+- An Arduino on a USB port of the GX device, flashed with
+  [`arduino/maxxfan_tx`](arduino/maxxfan_tx)
+
+### The transmitter
+
+An **ATmega328P board** — classic Nano, Uno or Pro Mini — with an infrared LED
+on **pin 9** through a current limiting resistor, cathode to ground. Pin 9 is not
+a free choice: the 38 kHz carrier comes from timer 1 in hardware, and that timer
+drives that pin.
+
+Doing the carrier in hardware is the reason this sketch does not disable
+interrupts. A packet is 176 symbols long and occupies the LED for about 150 ms;
+sketches that bit-bang the carrier have to block interrupts for that whole
+window and lose any serial byte that arrives in it. Here the serial port keeps
+running while a packet is on the air.
+
+Flash it with the Arduino IDE or `arduino-cli`; no libraries are needed.
+
+#### Serial protocol
+
+115200 8N1, one command per line:
+
+```
+?                                                     -> MAXXFAN 1
+S <on> <speed> <exhaust> <cover> <auto> <degF> <warn> -> OK <32 hex digits>
+R                                                     -> OK <32 hex digits>
+```
+
+`S` builds the packet, transmits it and echoes it back as hex, so the driver can
+log exactly what went out. `R` repeats the last packet unchanged. Values out of
+range are refused with `ERR` rather than sent. The setpoint is given in
+Fahrenheit here because that is the unit on the wire; the driver converts.
+
+The identification query is what makes the port safe to find. The driver globs
+`/dev/serial/by-id/` for CH340, FTDI, CP210x and Arduino names — never for
+Victron's own cables — and then asks each candidate to identify itself before
+sending it a single command.
+
+### Why `switch` and not a fan service
+
+Venus OS has no service class for a ventilation fan. `com.victronenergy.switch`
+is the one the GUI scans for `/SwitchableOutput/x/…`, and it offers exactly the
+controls this device needs: toggles, a stepped value, dropdowns with labels, a
+temperature setpoint and momentary buttons. The same API is what the GX IO
+extender, Node-RED virtual switches and third party digital switches use, so the
+fan sits on the switch pane next to them and needs no GUI modification at all.
+
+### Protocol
+
+38 kHz carrier, one third duty. The bit stream looks like RS232: one start bit,
+eight data bits least significant first, two stop bits. A **mark encodes a zero
+and a space encodes a one**, each symbol **834 µs** long. Sixteen bytes, no
+framing beyond that:
+
+| Byte | Content |
+|---|---|
+| 0–9 | fixed preamble `5A A5 80 7F 40 BF 20 DF 10 CC` |
+| 10 | state bits |
+| 11 | speed, 0 … 100 in steps of ten |
+| 12 | thermostat setpoint in °F |
+| 13 | always `FF` |
+| 14 | always `23` |
+| 15 | XOR of bytes 10 … 14 |
+
+State byte 10:
+
+| Bit | Meaning |
+|---|---|
+| 0 (0x01) | fan on |
+| 1 (0x02) | special — see below |
+| 2 (0x04) | direction: 0 intake, 1 exhaust |
+| 3 (0x08) | lid open |
+| 4 (0x10) | auto mode (thermostat) |
+| 5 (0x20) | warn — the fan beeps twice |
+
+The **special bit** overrides the fan's own coupling of lid and motor. It is set
+in thermostat mode, and for ceiling fan mode — running with the lid closed —
+which the fan otherwise refuses. The sketch derives it as
+`auto || (on && !lid_open)`, which matches all 99 reference recordings.
+
+Every packet carries the complete state. There are no incremental commands, and
+that is why a driver for this fan has to remember what it last sent.
+
+#### The setpoint is stored in Fahrenheit
+
+The remote displays Celsius but transmits Fahrenheit, and the conversion it uses
+**truncates towards zero**:
+
+```
+degF = trunc(degC × 1.8) + 32
+```
+
+That is not the same as rounding. A rounded conversion is off by one degree
+Fahrenheit on 20 of the 38 setpoints — 21 °C becomes 70 °F instead of the 69 °F
+the remote sends. The driver uses the truncating form, so a setpoint entered on
+the GX matches the one shown on the fan.
+
+#### Verified against the original remote
+
+[`tools/verify-encoder.py`](tools/verify-encoder.py) decodes the 99 signals that
+[skypeachblue](https://github.com/skypeachblue/maxxfan-reversing) captured from
+an original remote with a Flipper Zero, re-encodes each one and compares the
+result symbol by symbol:
+
+```bash
+python3 tools/verify-encoder.py Maxxfan_collection.ir
+```
+
+All 99 reproduce exactly. That comparison is also where the 834 µs symbol period
+and the truncating temperature conversion come from — both differ from the
+widely used [ESPHome component](https://github.com/brown-studios/esphome-maxxfan-protocol),
+which the fan accepts as well, but matching the original leaves the widest
+margin on a weak or off-axis infrared path.
+
+### Serial starter
+
+Venus OS attaches a service to every new `ttyUSB` and probes it for VE.Direct and
+MK2. That probing toggles DTR, which on an Arduino means a reset — so the
+bundled service releases the candidate ports with `stop-tty.sh` before the driver
+starts. For the same reason the driver opens the port once and keeps it open;
+re-opening it per command would reboot the transmitter every time.
+
+### Troubleshooting
+
+**Nothing appears in the device list.** Look at the log first:
+
+```bash
+tail -f /var/log/dbus-maxxfan/current
+```
+
+`no MaxxFan transmitter on this port` means a port was found but did not
+identify itself — usually the sketch is not flashed, or the wrong board is
+plugged in. `no candidate USB serial port` means no CH340, FTDI, CP210x or
+Arduino device is present at all.
+
+**The device is there but has no controls.** The switch pane needs the new user
+interface. Check *Settings → Display* on the GX, or the Remote Console.
+
+**Commands are accepted but the fan does not react.** Check the infrared path
+first with the *Beep* button — it is the cheapest test there is, because it
+changes nothing else. If the fan stays silent, the LED is not reaching the
+receiver: too far, too far off axis, or the resistor is too large. The remote
+itself works over a couple of metres, so aim the LED at the fan's own receiver
+window rather than at the ceiling.
+
+**The GX shows a state the fan is not in.** Somebody used the hand held remote.
+Press *Resend*, or wait for the periodic refresh.
+
+**Testing by hand.** Stop the service first — two processes on one serial port
+means both see garbage:
+
+```bash
+svc -d /service/dbus-maxxfan
+sleep 2
+PORT=$(/data/dbus-maxxfan/find-port.sh | head -1)
+python3 -c "
+import serial, time
+s = serial.Serial('$PORT', 115200, timeout=2); time.sleep(2)
+s.write(b'?\n'); print(s.readline())
+s.write(b'S 1 50 1 1 0 69 0\n'); print(s.readline())"
+svc -u /service/dbus-maxxfan
+```
+
+### Not implemented
+
+- **No feedback.** An infrared receiver on the Arduino could decode what the hand
+  held remote sends and keep the driver in step. The sketch would only need a
+  decoder and a report line; the protocol is fully known.
+- **No measured temperature.** The setpoint control can display a measured value
+  next to the target through `/SwitchableOutput/setpoint/Measurement`. Feeding it
+  from an existing Venus temperature sensor would make the auto mode much easier
+  to judge.
+- **No ceiling fan mode of its own.** Setting the fan on with the lid closed
+  produces it, but there is no separate control for it.
+
+### Acknowledgements
+
+Protocol groundwork by [skypeachblue](https://github.com/skypeachblue/maxxfan-reversing)
+and [wingspinner](https://github.com/wingspinner), packet layout confirmed
+against [brown-studios/esphome-maxxfan-protocol](https://github.com/brown-studios/esphome-maxxfan-protocol).
+The idea of driving the fan from an Arduino on the GX comes from the
+[Pekaway tutorial](https://pekaway.de/blogs/tutorials/maxxfan-uber-infrarot-steuern)
+and [ffroehlcke/maxx-wifi-controller](https://github.com/ffroehlcke/maxx-wifi-controller).
+
+### License
+
+MIT
+
+---
+
+## Deutsch
+
+Meldet einen MaxxAir MaxxFan Deluxe auf dem D-Bus von Venus OS als
+`com.victronenergy.switch` an. Damit bekommt der Lüfter eine eigene Karte im
+Switch-Pane des GX-Displays, in der Remote Console und im VRM — obwohl er
+überhaupt keine Datenverbindung besitzt.
+
+Die Befehle erreichen ihn auf demselben Weg wie die von der Handfernbedienung:
+per Infrarot. Ein Arduino mit Infrarot-LED, bespielt mit dem Sketch aus
+[`arduino/`](arduino/), hängt an einem USB-Port des GX-Geräts und sendet.
+
+### Was der Treiber liefert
+
+Eine Karte namens *MaxxFan* mit acht Bedienelementen:
+
+| Ausgang | Typ | Inhalt |
+|---|---|---|
+| `fan` | Schalter | Lüfter ein / aus |
+| `speed` | Stufenschalter | 10 … 100 %, in Zehnerschritten |
+| `direction` | Auswahl | Intake / Exhaust |
+| `cover` | Schalter | Deckel offen / zu |
+| `mode` | Auswahl | Manual / Auto (Thermostat) |
+| `setpoint` | Temperatur-Sollwert | −2 … 37 °C |
+| `resend` | Taster | Aktuellen Zustand erneut senden |
+| `beep` | Taster | Lüfter zweimal piepen lassen |
+
+Alle Elemente liegen zusätzlich unter `/SwitchableOutput/<name>/…` auf dem D-Bus
+und sind damit aus Node-RED und über MQTT les- und schreibbar.
+
+Der Typ jedes Elements lässt sich auf der GX-Geräteseite umstellen und wird
+gespeichert — wem der Stufenschalter für die Drehzahl nicht gefällt, stellt ihn
+auf Schieberegler oder Dimmer um. `ValidTypes` sagt je Ausgang, was erlaubt ist.
+
+### Infrarot geht nur in eine Richtung
+
+Der Lüfter antwortet nie. Was das GX-Display zeigt, ist **der zuletzt gesendete
+Zustand**, kein Messwert. Wer die Handfernbedienung benutzt, bringt beide
+auseinander — bis zum nächsten Befehl vom GX, der den Lüfter sofort wieder in
+Deckung bringt, weil jedes Paket den vollständigen Zustand trägt.
+
+Zwei Punkte, die daraus folgen:
+
+- **Beim Start wird nichts gesendet.** Den gespeicherten Zustand bei jedem
+  Neustart des GX erneut zu funken würde einen Lüfter starten, den jemand
+  bewusst von Hand ausgeschaltet hat. Der Zustand wird veröffentlicht, nicht
+  gesendet.
+- **Alle 15 Minuten läuft eine Auffrischung** (`REFRESH_S` im Treiber) und sendet
+  den aktuellen Zustand erneut, damit ein von Hand bedienter Lüfter von selbst
+  wieder unter GX-Kontrolle kommt. `REFRESH_S = 0` schaltet das ab; dann bleibt
+  der *Resend*-Taster.
+
+Weil das Protokoll kein „nur Drehzahl"-Kommando kennt, überträgt jede Änderung
+alle acht Felder. Änderungen werden deshalb erst 600 ms gesammelt — am
+Drehzahlregler zu ziehen erzeugt so ein Paket statt zwanzig.
+
+### Installation
+
+#### Mit SetupHelper (empfohlen)
+
+[SetupHelper](https://github.com/kwindrem/SetupHelper) installieren, dann im
+GX-Menü unter *Settings → Package manager → Inactive packages → new* eintragen:
+
+| Feld | Wert |
+|---|---|
+| Package name | `dbus-maxxfan` |
+| GitHub user | `mcgyver78` |
+| GitHub branch or tag | `latest` |
+
+Anschließend *Proceed* → *Install*.
+
+#### Manuell
+
+```bash
+cd /data
+git clone https://github.com/mcgyver78/dbus-maxxfan.git
+/data/dbus-maxxfan/setup
+```
+
+### Voraussetzungen
+
+- Venus OS ab v3.70 mit **neuer Oberfläche** — das Switch-Pane gibt es nur in
+  gui-v2. In der klassischen Oberfläche taucht das Gerät zwar in der Geräteliste
+  auf, seine Bedienelemente werden aber nicht gezeichnet.
+- Python 3 und `pyserial`, beides in Venus OS enthalten
+- Ein Arduino an einem USB-Port des GX-Geräts mit dem Sketch aus
+  [`arduino/maxxfan_tx`](arduino/maxxfan_tx)
+
+### Der Sender
+
+Ein **ATmega328P-Board** — klassischer Nano, Uno oder Pro Mini — mit einer
+Infrarot-LED an **Pin 9** über einen Vorwiderstand, Kathode an Masse. Pin 9 ist
+nicht frei wählbar: Der 38-kHz-Träger kommt aus Timer 1 in Hardware, und der
+bedient diesen Pin.
+
+Genau deshalb schaltet dieser Sketch die Interrupts **nicht** ab. Ein Paket ist
+176 Symbole lang und belegt die LED rund 150 ms; Sketches, die den Träger per
+Software erzeugen, müssen dieses ganze Fenster über die Interrupts sperren und
+verlieren jedes serielle Byte, das darin ankommt. Hier läuft die serielle
+Schnittstelle weiter, während gesendet wird.
+
+Flashen mit der Arduino-IDE oder `arduino-cli`, Bibliotheken sind keine nötig.
+
+#### Serielles Protokoll
+
+115200 8N1, ein Kommando je Zeile:
+
+```
+?                                                     -> MAXXFAN 1
+S <on> <speed> <exhaust> <cover> <auto> <degF> <warn> -> OK <32 Hexziffern>
+R                                                     -> OK <32 Hexziffern>
+```
+
+`S` baut das Paket, sendet es und gibt es als Hex zurück, damit der Treiber
+mitschreiben kann, was tatsächlich rausging. `R` wiederholt das letzte Paket
+unverändert. Werte außerhalb des zulässigen Bereichs werden mit `ERR` abgelehnt,
+nicht gesendet. Der Sollwert steht hier in Fahrenheit, weil das die Einheit auf
+dem Draht ist — der Treiber rechnet um.
+
+Die Typabfrage ist das, was die Portsuche sicher macht. Der Treiber sucht in
+`/dev/serial/by-id/` nach CH340-, FTDI-, CP210x- und Arduino-Namen — nie nach
+Victrons eigenen Kabeln — und lässt jeden Kandidaten sich identifizieren, bevor
+ein einziges Kommando hinausgeht.
+
+### Warum `switch` und kein Lüfter-Dienst
+
+Venus OS kennt keine Dienstklasse für einen Lüfter. `com.victronenergy.switch`
+ist die, nach deren `/SwitchableOutput/x/…`-Pfaden die Oberfläche sucht, und sie
+bietet genau die Elemente, die dieses Gerät braucht: Schalter, einen gestuften
+Wert, Auswahllisten mit Beschriftungen, einen Temperatur-Sollwert und Taster.
+Dieselbe API benutzen der GX-IO-Extender, die Virtual Switches aus Node-RED und
+digitale Schalter von Drittanbietern — der Lüfter sitzt also im Switch-Pane
+neben ihnen, ganz ohne GUI-Modifikation.
+
+### Protokoll
+
+38-kHz-Träger, ein Drittel Tastverhältnis. Der Bitstrom sieht aus wie RS232: ein
+Startbit, acht Datenbits mit dem niederwertigsten zuerst, zwei Stoppbits. Ein
+**Mark kodiert eine Null, ein Space eine Eins**, jedes Symbol **834 µs** lang.
+Sechzehn Bytes, mehr Rahmen gibt es nicht:
+
+| Byte | Inhalt |
+|---|---|
+| 0–9 | feste Präambel `5A A5 80 7F 40 BF 20 DF 10 CC` |
+| 10 | Zustandsbits |
+| 11 | Drehzahl, 0 … 100 in Zehnerschritten |
+| 12 | Thermostat-Sollwert in °F |
+| 13 | immer `FF` |
+| 14 | immer `23` |
+| 15 | XOR der Bytes 10 … 14 |
+
+Zustandsbyte 10:
+
+| Bit | Bedeutung |
+|---|---|
+| 0 (0x01) | Lüfter an |
+| 1 (0x02) | special — siehe unten |
+| 2 (0x04) | Richtung: 0 Intake, 1 Exhaust |
+| 3 (0x08) | Deckel offen |
+| 4 (0x10) | Auto-Modus (Thermostat) |
+| 5 (0x20) | warn — der Lüfter piept zweimal |
+
+Das **special-Bit** hebt die eingebaute Kopplung von Deckel und Motor auf. Es ist
+im Thermostatbetrieb gesetzt und im Ceiling-Fan-Modus — Lüfter an bei
+geschlossenem Deckel —, den der Lüfter sonst verweigert. Der Sketch leitet es als
+`auto || (on && !deckel_offen)` ab; das stimmt mit allen 99 Referenzaufnahmen
+überein.
+
+Jedes Paket trägt den kompletten Zustand. Inkrementelle Kommandos gibt es nicht,
+und genau deshalb muss ein Treiber für dieses Gerät sich merken, was er zuletzt
+gesendet hat.
+
+#### Der Sollwert steht in Fahrenheit
+
+Die Fernbedienung zeigt Celsius an, überträgt aber Fahrenheit — und rechnet dabei
+**gegen null abgeschnitten** um:
+
+```
+degF = trunc(degC × 1,8) + 32
+```
+
+Das ist nicht dasselbe wie Runden. Gerundet liegt man bei 20 der 38 Sollwerte um
+ein Grad Fahrenheit daneben: aus 21 °C würden 70 °F statt der 69 °F, die die
+Fernbedienung sendet. Der Treiber schneidet ab, damit ein am GX eingestellter
+Sollwert dem entspricht, den der Lüfter anzeigt.
+
+#### Geprüft gegen die Originalfernbedienung
+
+[`tools/verify-encoder.py`](tools/verify-encoder.py) dekodiert die 99 Signale,
+die [skypeachblue](https://github.com/skypeachblue/maxxfan-reversing) mit einem
+Flipper Zero von einer Originalfernbedienung aufgezeichnet hat, kodiert jedes neu
+und vergleicht Symbol für Symbol:
+
+```bash
+python3 tools/verify-encoder.py Maxxfan_collection.ir
+```
+
+Alle 99 stimmen exakt. Aus diesem Vergleich stammen auch die 834 µs Symbolzeit
+und die abschneidende Temperaturumrechnung — beides weicht von der verbreiteten
+[ESPHome-Komponente](https://github.com/brown-studios/esphome-maxxfan-protocol)
+ab, die der Lüfter zwar ebenfalls akzeptiert; nah am Original zu bleiben lässt
+aber den größten Spielraum bei schwacher oder schräger Infrarotstrecke.
+
+### Serial-Starter
+
+Venus OS hängt an jedes neue `ttyUSB` einen Dienst und probiert VE.Direct und
+MK2 durch. Dieses Abtasten zieht DTR, und das heißt bei einem Arduino: Reset. Der
+mitgelieferte Dienst gibt die Kandidatenports deshalb vor dem Start mit
+`stop-tty.sh` frei. Aus demselben Grund öffnet der Treiber den Port einmal und
+hält ihn offen — ihn pro Kommando neu zu öffnen würde den Sender jedes Mal neu
+starten.
+
+### Fehlersuche
+
+**In der Geräteliste taucht nichts auf.** Zuerst ins Log schauen:
+
+```bash
+tail -f /var/log/dbus-maxxfan/current
+```
+
+`no MaxxFan transmitter on this port` heißt, ein Port wurde gefunden, hat sich
+aber nicht identifiziert — meist ist der Sketch nicht geflasht oder das falsche
+Board steckt. `no candidate USB serial port` heißt, es ist überhaupt kein CH340-,
+FTDI-, CP210x- oder Arduino-Gerät da.
+
+**Das Gerät ist da, hat aber keine Bedienelemente.** Das Switch-Pane braucht die
+neue Oberfläche. Unter *Settings → Display* am GX oder in der Remote Console
+nachsehen.
+
+**Kommandos werden angenommen, der Lüfter reagiert nicht.** Die Infrarotstrecke
+zuerst mit dem *Beep*-Taster prüfen — der billigste Test überhaupt, weil er sonst
+nichts verändert. Bleibt der Lüfter still, kommt die LED nicht an: zu weit, zu
+schräg, oder der Vorwiderstand ist zu groß. Die Originalfernbedienung schafft ein
+paar Meter, also die LED auf das Empfängerfenster des Lüfters richten und nicht
+irgendwohin an die Decke.
+
+**Das GX zeigt einen Zustand, in dem der Lüfter nicht ist.** Da war die
+Handfernbedienung am Werk. *Resend* drücken oder die Auffrischung abwarten.
+
+**Von Hand testen.** Vorher den Dienst stoppen — zwei Prozesse auf einem
+seriellen Port bedeuten für beide Müll:
+
+```bash
+svc -d /service/dbus-maxxfan
+sleep 2
+PORT=$(/data/dbus-maxxfan/find-port.sh | head -1)
+python3 -c "
+import serial, time
+s = serial.Serial('$PORT', 115200, timeout=2); time.sleep(2)
+s.write(b'?\n'); print(s.readline())
+s.write(b'S 1 50 1 1 0 69 0\n'); print(s.readline())"
+svc -u /service/dbus-maxxfan
+```
+
+### Nicht umgesetzt
+
+- **Keine Rückmeldung.** Ein Infrarotempfänger am Arduino könnte mitlesen, was
+  die Handfernbedienung sendet, und den Treiber nachführen. Der Sketch bräuchte
+  dafür nur einen Dekoder und eine Meldezeile — das Protokoll ist vollständig
+  bekannt.
+- **Keine Ist-Temperatur.** Das Sollwert-Element kann über
+  `/SwitchableOutput/setpoint/Measurement` einen Messwert neben dem Sollwert
+  anzeigen. Aus einem vorhandenen Venus-Temperatursensor gespeist, wäre der
+  Auto-Modus deutlich besser zu beurteilen.
+- **Kein eigener Ceiling-Fan-Modus.** Lüfter an bei geschlossenem Deckel erzeugt
+  ihn, ein eigenes Bedienelement dafür gibt es nicht.
+
+### Dank
+
+Protokoll-Vorarbeit von [skypeachblue](https://github.com/skypeachblue/maxxfan-reversing)
+und [wingspinner](https://github.com/wingspinner), Paketaufbau gegengeprüft mit
+[brown-studios/esphome-maxxfan-protocol](https://github.com/brown-studios/esphome-maxxfan-protocol).
+Die Idee, den Lüfter von einem Arduino am GX aus zu steuern, stammt aus dem
+[Pekaway-Tutorial](https://pekaway.de/blogs/tutorials/maxxfan-uber-infrarot-steuern)
+und von [ffroehlcke/maxx-wifi-controller](https://github.com/ffroehlcke/maxx-wifi-controller).
+
+### Lizenz
+
+MIT

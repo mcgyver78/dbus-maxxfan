@@ -1,0 +1,22 @@
+v1.0
+  first release. Publishes the MaxxFan on the Venus OS D-Bus as
+  com.victronenergy.switch, with a card in the switch pane holding fan on/off,
+  speed, direction, lid, manual/auto, the thermostat setpoint and two buttons
+  for re-sending the state and for making the fan beep. The state is kept in
+  the Venus settings and survives restarts.
+
+  The Arduino sketch in arduino/ computes the remote control packet from the
+  requested state rather than replaying recorded pulse trains, which is what
+  makes the setpoint reachable at all. Its 38 kHz carrier comes from timer 1 in
+  hardware, so the serial port keeps working while a packet is transmitted -
+  earlier sketches disable interrupts for the whole 150 ms and lose commands
+  that arrive in that window.
+
+  Two findings from checking the encoder against 99 signals captured from an
+  original remote, both of which differ from what the published ESPHome
+  component does:
+    - the symbol period is 834 us, not 800 us
+    - the setpoint is stored in Fahrenheit and the conversion from the Celsius
+      the remote displays truncates towards zero, so trunc(C * 1.8) + 32. A
+      rounded conversion is off by one degree on 20 of the 38 setpoints.
+  tools/verify-encoder.py re-runs that comparison.

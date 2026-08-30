@@ -1,0 +1,13 @@
+#!/bin/sh
+exec 2>&1
+
+# Venus OS attaches a service to every new ttyUSB and probes it for VE.Direct
+# and MK2. That probing also toggles DTR, which resets the Arduino - so the
+# candidate ports have to be released before the driver starts.
+/data/dbus-maxxfan/find-port.sh | while read -r PORT; do
+    TTY=$(basename "$(readlink -f "$PORT")")
+    [ -x /opt/victronenergy/serial-starter/stop-tty.sh ] && \
+        /opt/victronenergy/serial-starter/stop-tty.sh "$TTY"
+done
+
+exec /usr/bin/python3 /data/dbus-maxxfan/dbus-maxxfan.py

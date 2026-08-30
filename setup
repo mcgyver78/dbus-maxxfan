@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# dbus-maxxfan - Venus OS driver for the MaxxAir MaxxFan Deluxe roof fan
+#
+# The fan has no data connection. It is commanded over infrared by an Arduino
+# running the maxxfan_tx sketch from arduino/, which hangs on a USB serial port
+# of the GX device. The driver publishes the fan as com.victronenergy.switch,
+# so it gets a card in the switch pane of the GX display, the remote console
+# and VRM.
+#
+# The driver lives in this package directory and is started by the service
+# services/dbus-maxxfan - no Venus OS files are replaced.
+
+# CommonResources asks about install/uninstall, carries it out and does not
+# return here.
+standardPromptAndActions='yes'
+
+#### following line incorporates helper resources into this script
+source "/data/SetupHelper/HelperResources/IncludeHelpers"
+#### end of lines to include helper resources
