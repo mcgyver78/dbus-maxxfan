@@ -164,6 +164,30 @@ Flash the sketch with the Arduino IDE — board *Arduino Nano*, processor
 `arduino-cli`. No libraries are needed. It compiles to about 3.4 KB, a tenth of
 the flash.
 
+#### Flashing it, and what goes wrong
+
+Every one of these cost time here, so they are written down rather than
+rediscovered.
+
+| Symptom | Cause |
+|---|---|
+| `bad CPU type in executable` while compiling | Apple Silicon without Rosetta — the AVR toolchain is Intel only. `softwareupdate --install-rosetta --agree-to-license` |
+| `expected unqualified-id before '<' token` | the `.ino` contains HTML. It was copied from the rendered GitHub page instead of the file; use the *Raw* button or the clone |
+| No *Processor* entry in the *Tools* menu | wrong board. `ATmega328P Xplained Mini` is the same chip on a different platform and has no bootloader options. It must be *Arduino Nano* from *Arduino AVR Boards* — the first line of the verbose output has to read `FQBN: arduino:avr:nano` |
+| `stk500_recv(): programmer is not responding`, `not in sync` | older board with the old bootloader: *Tools → Processor → ATmega328P (Old Bootloader)* |
+| `cannot open port …: No such file or directory` | the board dropped off the bus. Re-plug it and pick the port again — the IDE holds on to a stale selection |
+| The size summary appears but no avrdude output at all | *Verify* was pressed, not *Upload*. Both print the summary, only *Upload* runs avrdude |
+| Upload fails although the port exists | the serial monitor is holding the port. Close it first |
+| No port under *Tools → Port* at all | nearly always a charge-only USB cable. The board selection has no influence on whether a port appears |
+| No reply in the serial monitor | 115200 baud, and the line ending must be *Newline*. Without it the sketch never sees a complete command |
+
+On macOS pick the **`/dev/cu.…`** port, not `/dev/tty.…` — the tty variant blocks
+until the device asserts DCD, and the upload then hangs without an error.
+
+The board here is an FTDI Nano, which carries a unique serial number and shows up
+as `usb-FTDI_FT232R_USB_UART_<serial>-if00-port0`. CH340 clones usually have none,
+which is why the driver verifies the port by asking rather than by name.
+
 #### Serial protocol
 
 115200 8N1, one command per line:
@@ -509,6 +533,31 @@ Geflasht wird mit der Arduino-IDE — Board *Arduino Nano*, Prozessor *ATmega328
 bei den meisten Clones *ATmega328P (Old Bootloader)* — oder mit `arduino-cli`.
 Bibliotheken sind keine nötig. Kompiliert belegt der Sketch rund 3,4 kB, ein
 Zehntel des Flash.
+
+#### Flashen, und was dabei schiefgeht
+
+Jeder dieser Punkte hat hier Zeit gekostet, deshalb stehen sie hier, statt neu
+gefunden zu werden.
+
+| Symptom | Ursache |
+|---|---|
+| `bad CPU type in executable` beim Kompilieren | Apple Silicon ohne Rosetta — die AVR-Toolchain gibt es nur für Intel. `softwareupdate --install-rosetta --agree-to-license` |
+| `expected unqualified-id before '<' token` | in der `.ino` steht HTML. Sie wurde von der gerenderten GitHub-Seite kopiert statt aus der Datei; den *Raw*-Button oder den Klon nehmen |
+| Kein Eintrag *Prozessor* im Menü *Werkzeuge* | falsches Board. `ATmega328P Xplained Mini` ist derselbe Chip auf einer anderen Plattform und kennt keine Bootloader-Varianten. Es muss *Arduino Nano* aus *Arduino AVR Boards* sein — in der ersten Zeile der ausführlichen Ausgabe muss `FQBN: arduino:avr:nano` stehen |
+| `stk500_recv(): programmer is not responding`, `not in sync` | älteres Board mit altem Bootloader: *Werkzeuge → Prozessor → ATmega328P (Old Bootloader)* |
+| `cannot open port …: No such file or directory` | das Board ist vom Bus verschwunden. Neu einstecken und den Port erneut auswählen — die IDE hält an der alten Auswahl fest |
+| Die Größenangabe erscheint, aber keine avrdude-Ausgabe | es wurde *Überprüfen* gedrückt, nicht *Hochladen*. Beide geben die Größe aus, nur *Hochladen* startet avrdude |
+| Upload scheitert, obwohl der Port da ist | der Serial Monitor hält den Port. Vorher schließen |
+| Unter *Werkzeuge → Port* taucht gar nichts auf | fast immer ein Ladekabel ohne Datenleitungen. Die Board-Auswahl hat darauf keinen Einfluss |
+| Keine Antwort im Serial Monitor | 115200 Baud, und das Zeilenende muss auf *Neue Zeile* stehen. Sonst sieht der Sketch nie ein vollständiges Kommando |
+
+Unter macOS den **`/dev/cu.…`**-Port nehmen, nicht `/dev/tty.…` — die tty-Variante
+blockiert, bis das Gerät DCD meldet, und der Upload hängt dann ohne Fehlermeldung.
+
+Das Board hier ist ein FTDI-Nano, der eine eindeutige Seriennummer trägt und als
+`usb-FTDI_FT232R_USB_UART_<seriennummer>-if00-port0` erscheint. CH340-Clones haben
+meist keine — deshalb prüft der Treiber den Port durch Nachfragen und nicht über
+den Namen.
 
 #### Serielles Protokoll
 
