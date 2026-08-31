@@ -39,8 +39,23 @@ Every control also appears under `/SwitchableOutput/<name>/…` on D-Bus, so
 Node-RED and MQTT can read and write the same values.
 
 The type of each control can be changed from the GX device page, and the change
-is stored — if the stepped switch for the speed does not suit you, set it to a
-slider or a dimmer instead. `ValidTypes` lists what each output allows.
+is stored — if the slider for the speed does not suit you, set it to a dimmer
+instead. `ValidTypes` lists what each output allows.
+
+**A note on language.** The labels above are plain text the driver publishes, so
+they stay English whatever the GX is set to — while the words the interface
+supplies itself (*on/off*, *press*, *min/max*) follow the device's language
+setting. On a German GX the card therefore reads half English. A driver cannot
+translate its own labels, but you can rename every control and it is stored:
+
+```bash
+S=com.victronenergy.switch.maxxfan_ttyUSB0
+dbus -y $S /SwitchableOutput/fan/Settings/CustomName SetValue "Lüfter"
+dbus -y $S /SwitchableOutput/speed/Settings/CustomName SetValue "Drehzahl"
+```
+
+The entries of the two dropdowns come from `Settings/Labels` and stay as the
+driver sets them.
 
 ### Infrared only goes one way
 
@@ -366,8 +381,25 @@ Alle Elemente liegen zusätzlich unter `/SwitchableOutput/<name>/…` auf dem D-
 und sind damit aus Node-RED und über MQTT les- und schreibbar.
 
 Der Typ jedes Elements lässt sich auf der GX-Geräteseite umstellen und wird
-gespeichert — wem der Stufenschalter für die Drehzahl nicht gefällt, stellt ihn
-auf Schieberegler oder Dimmer um. `ValidTypes` sagt je Ausgang, was erlaubt ist.
+gespeichert — wem der Schieberegler für die Drehzahl nicht gefällt, stellt ihn
+auf Dimmer um. `ValidTypes` sagt je Ausgang, was erlaubt ist.
+
+**Zur Sprache.** Die Beschriftungen oben sind reiner Text, den der Treiber
+veröffentlicht — sie bleiben also englisch, egal worauf das GX eingestellt ist.
+Die Wörter, die die Oberfläche selbst beisteuert (*Ein/Aus*, *Drücken*,
+*Min/Max*), folgen dagegen der Spracheinstellung des Geräts. Auf einem deutschen
+GX liest sich die Karte deshalb halb englisch. Übersetzen kann ein Treiber seine
+Beschriftungen nicht, umbenennen lässt sich aber jedes Element, und das wird
+gespeichert:
+
+```bash
+S=com.victronenergy.switch.maxxfan_ttyUSB0
+dbus -y $S /SwitchableOutput/fan/Settings/CustomName SetValue "Lüfter"
+dbus -y $S /SwitchableOutput/speed/Settings/CustomName SetValue "Drehzahl"
+```
+
+Die Einträge der beiden Auswahllisten kommen aus `Settings/Labels` und bleiben
+so, wie der Treiber sie setzt.
 
 ### Infrarot geht nur in eine Richtung
 
