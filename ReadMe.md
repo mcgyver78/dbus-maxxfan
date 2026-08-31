@@ -22,6 +22,8 @@ hangs on a USB serial port of the GX device and does the transmitting.
 
 One card named *MaxxFan*, holding eight controls:
 
+![The MaxxFan card in the switch pane](docs/switch-pane.png)
+
 | Output | Type | Content |
 |---|---|---|
 | `fan` | toggle | Fan on / off |
@@ -346,6 +348,8 @@ per Infrarot. Ein Arduino mit Infrarot-LED, bespielt mit dem Sketch aus
 ### Was der Treiber liefert
 
 Eine Karte namens *MaxxFan* mit acht Bedienelementen:
+
+![Die MaxxFan-Karte im Switch-Pane](docs/switch-pane.png)
 
 | Ausgang | Typ | Inhalt |
 |---|---|---|
