@@ -33,7 +33,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.0"
+VERSION = "1.1"
 SERVICE_CLASS = "switch"
 FALLBACK_INSTANCE = 41
 BAUD = 115200
@@ -76,7 +76,7 @@ def c_to_f(degc):
 TOGGLE, MOMENTARY, DIMMER, SETPOINT, STEPPED, DROPDOWN, SLIDER = 1, 0, 2, 3, 4, 6, 7
 OUTPUTS = (
     ("fan",       "Fan",           TOGGLE,    (TOGGLE,),                   None),
-    ("speed",     "Speed",         STEPPED,   (DIMMER, STEPPED, SLIDER),   (10, 100, 10, "%")),
+    ("speed",     "Speed",         SLIDER,    (DIMMER, SLIDER),            (10, 100, 10, "%")),
     ("direction", "Direction",     DROPDOWN,  (TOGGLE, DROPDOWN),          (0, 1, 1, None)),
     ("cover",     "Lid",           TOGGLE,    (TOGGLE,),                   None),
     ("mode",      "Mode",          DROPDOWN,  (TOGGLE, DROPDOWN),          (0, 1, 1, None)),
@@ -368,7 +368,16 @@ class Driver(object):
         except (TypeError, ValueError):
             return False
         if key == "speed":
-            value = min(SPEEDS, key=lambda s: abs(s - value))
+            if value not in SPEEDS:
+                # The stepped switch (type 4) sends the number of the position
+                # it sits on rather than the value, and ignores the range
+                # published here - so every position arrives as a single digit
+                # and would end up as the lowest speed. Refuse it instead of
+                # sending the fan a speed the user did not ask for.
+                log("speed %s ignored - this control sends step numbers, not "
+                    "percent. Set /SwitchableOutput/speed/Settings/Type to 7."
+                    % value)
+                return True
         elif key in ("direction", "mode"):
             value = 1 if value else 0
         elif key == "setpoint":

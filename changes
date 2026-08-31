@@ -1,3 +1,15 @@
+v1.1
+  the speed control is a basic slider now, not a stepped switch. The stepped
+  switch turned out to send the number of the position it sits on - 1 to 7 -
+  and to ignore the minimum, maximum and step size the driver publishes, so
+  every position arrived as a single digit and the fan stayed at 10 %. The
+  stepped switch is no longer offered for the speed, and a value that is not a
+  valid percentage is refused with a line in the log rather than rounded into
+  something the user did not ask for.
+
+  Verified on Venus OS v3.79 against a MaxxFan Deluxe: fan, speed, direction,
+  lid, mode and both buttons all behave, and the fan follows the slider.
+
 v1.0
   first release. Publishes the MaxxFan on the Venus OS D-Bus as
   com.victronenergy.switch, with a card in the switch pane holding fan on/off,

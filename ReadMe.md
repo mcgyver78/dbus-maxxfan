@@ -25,7 +25,7 @@ One card named *MaxxFan*, holding eight controls:
 | Output | Type | Content |
 |---|---|---|
 | `fan` | toggle | Fan on / off |
-| `speed` | stepped switch | 10 … 100 %, in steps of ten |
+| `speed` | basic slider | 10 … 100 %, in steps of ten |
 | `direction` | dropdown | Intake / Exhaust |
 | `cover` | toggle | Lid open / closed |
 | `mode` | dropdown | Manual / Auto (thermostat) |
@@ -277,6 +277,19 @@ window rather than at the ceiling.
 **The GX shows a state the fan is not in.** Somebody used the hand held remote.
 Press *Resend*, or wait for the periodic refresh.
 
+**The speed control does nothing, and the fan beeps at every step.** The control
+was configured as a *stepped switch*. That type sends the number of the position
+it sits on — 1 to 7 — and ignores the minimum, maximum and step size a driver
+publishes, so every position arrives as a single digit. The driver refuses those
+values and says so in the log. Put it back to the basic slider:
+
+```bash
+dbus -y com.victronenergy.switch.maxxfan_ttyUSB0 \
+     /SwitchableOutput/speed/Settings/Type SetValue 7
+```
+
+That is also why the stepped switch is not offered for the speed any more.
+
 **Testing by hand.** Stop the service first — two processes on one serial port
 means both see garbage:
 
@@ -337,7 +350,7 @@ Eine Karte namens *MaxxFan* mit acht Bedienelementen:
 | Ausgang | Typ | Inhalt |
 |---|---|---|
 | `fan` | Schalter | Lüfter ein / aus |
-| `speed` | Stufenschalter | 10 … 100 %, in Zehnerschritten |
+| `speed` | Schieberegler | 10 … 100 %, in Zehnerschritten |
 | `direction` | Auswahl | Intake / Exhaust |
 | `cover` | Schalter | Deckel offen / zu |
 | `mode` | Auswahl | Manual / Auto (Thermostat) |
@@ -596,6 +609,21 @@ irgendwohin an die Decke.
 
 **Das GX zeigt einen Zustand, in dem der Lüfter nicht ist.** Da war die
 Handfernbedienung am Werk. *Resend* drücken oder die Auffrischung abwarten.
+
+**Der Drehzahlregler bewirkt nichts, der Lüfter piept bei jeder Stufe.** Dann
+steht das Element auf *Stufenschalter*. Dieser Typ überträgt die Nummer der
+Position, auf der er steht — 1 bis 7 — und ignoriert Minimum, Maximum und
+Schrittweite, die der Treiber angibt; jede Stufe kommt also als einstellige Zahl
+an. Der Treiber weist solche Werte ab und schreibt es ins Log. Zurück auf den
+Schieberegler:
+
+```bash
+dbus -y com.victronenergy.switch.maxxfan_ttyUSB0 \
+     /SwitchableOutput/speed/Settings/Type SetValue 7
+```
+
+Aus demselben Grund wird der Stufenschalter für die Drehzahl gar nicht mehr
+angeboten.
 
 **Von Hand testen.** Vorher den Dienst stoppen — zwei Prozesse auf einem
 seriellen Port bedeuten für beide Müll:
