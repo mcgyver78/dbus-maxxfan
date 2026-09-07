@@ -109,8 +109,9 @@ mod.REFRESH_S = 0        # fire only the timers a test arms itself
 
 
 class FakeTx(object):
-    def __init__(self):
-        self.firmware = "MAXXFAN 1"
+    def __init__(self, version="1.3"):
+        self.firmware = "MAXXFAN 1 " + version if version else "MAXXFAN 1"
+        self.version = version
         self.sent = []
         self.fail = False
         self.closed = False
@@ -242,6 +243,27 @@ check("  and the button pops back out",
 drv.svc.set_value("/SwitchableOutput/beep/State", 1)
 run_timers()
 check("Beep sets the warn bit", tx.sent[-1]["warn"], True)
+
+# ---- 7b. the versions are visible ---------------------------------------
+drv, tx, _ = build()
+check("the sketch version is on the device page",
+      drv.svc["/FirmwareVersion"], "1.3")
+check("the card label names both versions",
+      drv.svc["/SwitchableOutput/update/Settings/CustomName"],
+      "Transmitter 1.3 (up to date)" if mod.hex_version() else "Transmitter 1.3")
+check("the update button sorts after Speed",
+      sorted(["Speed", drv.svc["/SwitchableOutput/update/Settings/CustomName"]])[-1]
+      .startswith("Transmitter"), True)
+
+drv, tx, _ = build()
+tx.version = None
+tx.firmware = "MAXXFAN 1"
+drv._publish_versions()
+check("an old sketch without a version is named honestly",
+      drv.svc["/FirmwareVersion"], "pre-1.3")
+check("  and the label offers the update",
+      "update to" in drv.svc["/SwitchableOutput/update/Settings/CustomName"]
+      if mod.hex_version() else True, True)
 
 # ---- 8. a port that does not answer is handed back to serial-starter ----
 calls = []

@@ -34,7 +34,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.2"
+VERSION = "1.3"
 SERVICE_CLASS = "switch"
 FALLBACK_INSTANCE = 41
 BAUD = 115200
@@ -70,6 +70,11 @@ STATUS_OFF, STATUS_ON = 0x00, 0x09
 MIN_C, MAX_C = -2, 37          # thermostat range the fan accepts
 SPEEDS = tuple(range(10, 101, 10))
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+HEX_FILE = os.path.join(HERE, "arduino", "maxxfan_tx.hex")
+HEX_VERSION_FILE = HEX_FILE + ".ver"
+sys.path.insert(0, os.path.join(HERE, "tools"))
+
 
 def log(msg):
     print("%s %s" % (time.strftime("%H:%M:%S"), msg), flush=True)
@@ -99,10 +104,25 @@ OUTPUTS = (
     ("setpoint",  "Auto setpoint", SETPOINT,  (SETPOINT, SLIDER),          (MIN_C, MAX_C, 1, None)),
     ("resend",    "Resend",        MOMENTARY, (MOMENTARY,),                None),
     ("beep",      "Beep",          MOMENTARY, (MOMENTARY,),                None),
+    # The card sorts its elements by label, so a name starting with T puts this
+    # one after "Speed" - bottom right, out of the way of the fan controls.
+    ("update",    "Transmitter",   MOMENTARY, (MOMENTARY,),                None),
 )
 LABELS = {"direction": ["Intake", "Exhaust"], "mode": ["Manual", "Auto"]}
 # Outputs whose value lives in /Dimming; a write to their /State means nothing.
 VALUE_ONLY = ("speed", "setpoint")
+# Buttons: they act on the press and pop back out.
+BUTTONS = ("resend", "beep", "update")
+
+
+def hex_version():
+    """The version of the sketch shipped in this package, or None."""
+    try:
+        with open(HEX_VERSION_FILE) as fh:
+            v = fh.read().strip()
+        return v if v and os.path.exists(HEX_FILE) else None
+    except Exception:
+        return None
 
 
 def tty_of(port):
@@ -160,6 +180,10 @@ class Transmitter(object):
         time.sleep(RESET_WAIT)
         self.ser.reset_input_buffer()
         self.firmware = self._identify()
+        # "MAXXFAN <protocol> <version>"; sketches before 1.3 answer without a
+        # version, and those are by definition older than anything we ship.
+        parts = self.firmware.split()
+        self.version = parts[2] if len(parts) > 2 else None
 
     def close(self):
         try:
@@ -288,7 +312,7 @@ class Driver(object):
         s.add_path("/CustomName", self._setting("name", "MaxxFan"),
                    writeable=True,
                    onchangecallback=lambda p, v: self._on_device_name(v))
-        s.add_path("/FirmwareVersion", self.tx.firmware)
+        s.add_path("/FirmwareVersion", self.tx.version or "pre-1.3")
         s.add_path("/HardwareVersion", 0)
         s.add_path("/Serial", "maxxfan-ir")
         s.add_path("/Connected", 1)
@@ -305,6 +329,7 @@ class Driver(object):
         log("registered as %s, instance %d" % (svcname, instance))
 
         self._store("port", port)
+        self._publish_versions()
         self._publish()
         # Deliberately silent at startup: re-transmitting here would move a fan
         # that somebody switched off by hand, every time the GX reboots.
@@ -417,7 +442,7 @@ class Driver(object):
             s[base + "/State"] = 1
             s[base + "/Status"] = STATUS_ON
             s[base + "/Dimming"] = st[key]
-        for key in ("resend", "beep"):
+        for key in BUTTONS:
             s["/SwitchableOutput/%s/Status" % key] = STATUS_OFF
 
     # --------------------------------------------------------------- handlers
@@ -464,7 +489,7 @@ class Driver(object):
             value = int(value)
         except (TypeError, ValueError):
             return False
-        if key in ("resend", "beep"):
+        if key in BUTTONS:
             # Momentary: act on the press, then let the button pop back out.
             if value:
                 GLib.idle_add(self._momentary, key)
@@ -507,14 +532,67 @@ class Driver(object):
 
     def _momentary(self, key):
         try:
-            # Both buttons transmit the shadow state. The sketch can repeat its
-            # own last packet, but after a GX reboot it has none - and that is
-            # exactly when somebody presses Resend.
-            self._transmit(warn=(key == "beep"))
+            if key == "update":
+                self._update_transmitter()
+            else:
+                # Both other buttons transmit the shadow state. The sketch can
+                # repeat its own last packet, but after a GX reboot it has none
+                # - and that is exactly when somebody presses Resend.
+                self._transmit(warn=(key == "beep"))
         except Exception as e:
             self._failed(e)
         self.svc["/SwitchableOutput/%s/State" % key] = 0
         return False
+
+    # ------------------------------------------------------- transmitter fw
+
+    def _update_label(self):
+        have = self.tx.version or "pre-1.3"
+        want = hex_version()
+        if want is None:
+            return "Transmitter %s" % have
+        if have == want:
+            return "Transmitter %s (up to date)" % have
+        return "Transmitter %s (update to %s)" % (have, want)
+
+    def _publish_versions(self):
+        """Sketch version on the device page, and on the card as a label."""
+        self.svc["/FirmwareVersion"] = self.tx.version or "pre-1.3"
+        path = "/SwitchableOutput/update/Settings/CustomName"
+        current = str(self.svc[path])
+        # Leave a name the user chose alone; ours always starts like this.
+        if current.startswith("Transmitter"):
+            label = self._update_label()
+            if current != label:
+                self.svc[path] = label
+                self._store("name_update", label)
+
+    def _update_transmitter(self):
+        """Flash the sketch that ships with this package onto the Arduino.
+
+        Only ever from the button. This blocks for a few seconds; the fan does
+        not care, infrared is one way and it keeps its own state meanwhile.
+        """
+        import flash
+        want = hex_version()
+        if want is None:
+            log("no firmware shipped with this package, nothing to flash")
+            return
+        log("updating the transmitter from %s to %s"
+            % (self.tx.version or "pre-1.3", want))
+        self.svc["/Connected"] = 0
+        self.tx.close()                # the programmer needs the port
+        try:
+            chip = flash.flash(self.port, HEX_FILE, log=log)
+            log("flashed %s" % chip)
+        finally:
+            self.tx = Transmitter(self.port)
+        log("transmitter now answers %r" % self.tx.firmware)
+        if self.tx.version != want:
+            log("WARNING: it reports %s, not %s - is the .hex out of date?"
+                % (self.tx.version, want))
+        self._publish_versions()
+        self._ok()
 
     # ------------------------------------------------------------ transmitting
 
@@ -636,8 +714,47 @@ def open_transmitter(argv, settings):
         if tx is not None:
             log("transmitter on %s answers %r" % (port, tx.firmware))
             return tx, port
+        if port == known:
+            tx = repair(port)          # our own port, sketch gone
+            if tx is not None:
+                return tx, port
     log("none of the %d candidate ports answered the identification" % len(order))
     return None, None
+
+
+def repair(port):
+    """Re-flash the port that used to be ours but has no working sketch.
+
+    This is the one case where flashing happens without being asked: the port
+    is the one that identified as MAXXFAN before, so there is no doubt whose
+    board it is, and an interrupted update is the likely reason it went quiet.
+    Anything else - an unknown port, an ambiguous one - is left alone, because
+    a bootloader only says "an AVR lives here", not whose project it runs.
+    """
+    if hex_version() is None:
+        return None
+    try:
+        import flash
+    except ImportError as e:
+        log("cannot flash: %s" % e)
+        return None
+    chip = flash.identify(port)
+    if chip is None:
+        return None
+    log("%s has a %s bootloader but no working sketch - re-flashing"
+        % (os.path.basename(port), chip))
+    try:
+        flash.flash(port, HEX_FILE, log=log)
+    except Exception as e:
+        log("re-flashing failed: %s" % e)
+        return None
+    try:
+        tx = Transmitter(port)
+    except Exception as e:
+        log("still no answer after re-flashing: %s" % e)
+        return None
+    log("recovered, transmitter answers %r" % tx.firmware)
+    return tx
 
 
 def main():

@@ -13,7 +13,7 @@
  *
  * Serial protocol, 115200 8N1, one command per line:
  *
- *   ?                                              -> MAXXFAN 1
+ *   ?                                              -> MAXXFAN 1 <version>
  *   S <on> <speed> <exhaust> <cover> <auto> <degF> <warn>  -> OK <32 hex digits>
  *   R                                              -> OK <32 hex digits>
  *
@@ -36,6 +36,13 @@
 #endif
 
 #define IR_PIN 9              /* OC1A - fixed by the hardware timer */
+
+/* Answered to '?' as "MAXXFAN <protocol> <firmware>". The protocol number
+ * changes only when the command set does; the firmware number tracks this
+ * file, and the driver compares it against the .hex shipped in the package to
+ * decide whether it can offer an update. Bump it whenever this file changes. */
+#define PROTOCOL_VERSION "1"
+#define SKETCH_VERSION   "1.3"
 
 /* Measured from the original remote: 99 captured signals average 834 us per
  * symbol, not the 800 us often quoted. The fan accepts both, but matching the
@@ -178,7 +185,7 @@ static bool too_long;
 static void handle(char *s)
 {
   if (s[0] == '?' && s[1] == 0) {
-    Serial.println(F("MAXXFAN 1"));
+    Serial.println(F("MAXXFAN " PROTOCOL_VERSION " " SKETCH_VERSION));
     return;
   }
   if (s[0] == 'R' && s[1] == 0) {
@@ -225,7 +232,7 @@ void setup()
 {
   Serial.begin(115200);
   carrier_init();
-  Serial.println(F("MAXXFAN 1"));
+  Serial.println(F("MAXXFAN " PROTOCOL_VERSION " " SKETCH_VERSION));
 }
 
 void loop()

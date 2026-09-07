@@ -34,6 +34,7 @@ One card named *MaxxFan*, holding eight controls:
 | `setpoint` | temperature setpoint | −2 … 37 °C, the thermostat's target |
 | `resend` | momentary | Transmit the current state again |
 | `beep` | momentary | Make the fan beep twice, to find it or test the path |
+| `update` | momentary | Shows both firmware versions, and flashes the Arduino |
 
 Every control also appears under `/SwitchableOutput/<name>/…` on D-Bus, so
 Node-RED and MQTT can read and write the same values.
@@ -202,7 +203,7 @@ which is why the driver verifies the port by asking rather than by name.
 115200 8N1, one command per line:
 
 ```
-?                                                     -> MAXXFAN 1
+?                                                     -> MAXXFAN 1 1.3
 S <on> <speed> <exhaust> <cover> <auto> <degF> <warn> -> OK <32 hex digits>
 R                                                     -> OK <32 hex digits>
 ```
@@ -222,6 +223,55 @@ but the **RS485-to-USB interface** — the cable that connects a Carlo Gavazzi
 grid meter — is a plain FTDI FT232R and looks exactly like an Arduino in the
 by-id listing. A match is therefore only ever a reason to ask, never a reason to
 act. See [Serial starter](#serial-starter) for what that means in practice.
+
+### Updating the Arduino from the GX
+
+Venus OS has no avrdude, and does not need one: the bootloader the Arduino IDE
+talks to speaks STK500v1, and [`tools/flash.py`](tools/flash.py) implements
+enough of it to program an ATmega328P over pyserial. Once the transmitter is
+plugged into the GX device, it never has to go back to a laptop.
+
+**Where the versions are.** The device page shows the sketch under *Firmware
+version* and the driver in the *Connection* row. On the card, the element in
+the bottom right carries both:
+
+```
+Transmitter 1.3 (up to date)
+Transmitter 1.2 (update to 1.3)      <- press to flash
+Transmitter pre-1.3 (update to 1.3)  <- a sketch older than this mechanism
+```
+
+It sorts after *Speed* because the card orders its controls by label, which is
+why it sits out of the way of the fan controls. Rename it and the driver stops
+touching the label.
+
+**Flashing only happens when you press it.** Not on install, not on a version
+mismatch. The one exception is repair: if the port that identified as ours last
+time now has a bootloader but no working sketch - an update that was
+interrupted - the driver finishes the job at startup. There is no doubt about
+whose board that is, and the alternative is a fan that stays dead until somebody
+carries a laptop to it.
+
+A bootloader alone is never enough to start flashing on any other port. It only
+says "an AVR lives here", not whose project it runs.
+
+**What cannot be updated this way:** a board whose bootloader was erased (needs
+an ISP programmer), one with auto-reset disabled - cutting RESET-EN is a common
+trick to stop the board rebooting when a port is opened, and it stops flashing
+too - and anything that is not an ATmega328P or 168, which the signature check
+rejects. One case fails silently: a sketch built for 16 MHz running on an 8 MHz
+board reports its version happily and transmits infrared at half speed. A
+signature cannot tell clock rates apart.
+
+An interrupted write cannot brick the board. The bootloader sits in a protected
+section of flash and cannot overwrite itself, so the worst case is a broken
+sketch and a working bootloader - exactly the state the repair path above is
+for.
+
+**Keeping the firmware in step.** `arduino/maxxfan_tx.hex` is what gets flashed,
+so it has to match the sketch. [`tools/build-hex.sh`](tools/build-hex.sh) builds
+it and the version file from `SKETCH_VERSION` in the sketch, and a GitHub
+workflow rebuilds both on every change and fails if what is committed is stale.
 
 ### Why `switch` and not a fan service
 
@@ -448,6 +498,7 @@ Eine Karte namens *MaxxFan* mit acht Bedienelementen:
 | `setpoint` | Temperatur-Sollwert | −2 … 37 °C |
 | `resend` | Taster | Aktuellen Zustand erneut senden |
 | `beep` | Taster | Lüfter zweimal piepen lassen |
+| `update` | Taster | Zeigt beide Firmware-Versionen und flasht den Arduino |
 
 Alle Elemente liegen zusätzlich unter `/SwitchableOutput/<name>/…` auf dem D-Bus
 und sind damit aus Node-RED und über MQTT les- und schreibbar.
@@ -621,7 +672,7 @@ den Namen.
 115200 8N1, ein Kommando je Zeile:
 
 ```
-?                                                     -> MAXXFAN 1
+?                                                     -> MAXXFAN 1 1.3
 S <on> <speed> <exhaust> <cover> <auto> <degF> <warn> -> OK <32 Hexziffern>
 R                                                     -> OK <32 Hexziffern>
 ```
@@ -642,6 +693,59 @@ auf — das **RS485-zu-USB-Interface** dagegen, das Kabel zum Carlo-Gavazzi-Zäh
 ist ein blanker FTDI FT232R und sieht in der by-id-Liste aus wie ein Arduino. Ein
 Treffer ist deshalb immer nur ein Grund nachzufragen, nie ein Grund zu handeln.
 Was das praktisch heißt, steht unter [Serial-Starter](#serial-starter-1).
+
+### Den Arduino vom GX aus aktualisieren
+
+Venus OS hat kein avrdude und braucht auch keins: Der Bootloader, mit dem die
+Arduino-IDE redet, spricht STK500v1, und [`tools/flash.py`](tools/flash.py)
+setzt davon so viel um, wie zum Programmieren eines ATmega328P nötig ist - über
+pyserial, das auf Venus vorhanden ist. Steckt der Sender einmal am GX-Gerät,
+muss er nie wieder an einen Laptop.
+
+**Wo die Versionen stehen.** Auf der Geräteseite steht der Sketch unter
+*Firmware version* und der Treiber in der Zeile *Connection*. Auf der Karte
+trägt das Element unten rechts beide:
+
+```
+Transmitter 1.3 (up to date)
+Transmitter 1.2 (update to 1.3)      <- Druck flasht
+Transmitter pre-1.3 (update to 1.3)  <- Sketch älter als dieser Mechanismus
+```
+
+Es sortiert hinter *Speed*, weil die Karte ihre Elemente nach der Beschriftung
+ordnet - deshalb sitzt es abseits der Lüfterbedienelemente. Benennst du es um,
+lässt der Treiber die Beschriftung in Ruhe.
+
+**Geflasht wird nur auf Knopfdruck.** Nicht bei der Installation, nicht bei
+einer Versionsabweichung. Die einzige Ausnahme ist die Reparatur: Hat der Port,
+der sich zuletzt als unserer gemeldet hat, jetzt einen Bootloader, aber keinen
+funktionierenden Sketch - ein abgebrochenes Update also -, bringt der Treiber
+beim Start zu Ende, was angefangen wurde. Wessen Board das ist, steht dort außer
+Frage, und die Alternative wäre ein Lüfter, der tot bleibt, bis jemand mit einem
+Laptop hinfährt.
+
+Auf jedem anderen Port reicht ein Bootloader nie zum Flashen. Er sagt nur "hier
+wohnt ein AVR", nicht, wessen Projekt darauf läuft.
+
+**Was sich so nicht aktualisieren lässt:** ein Board mit gelöschtem Bootloader
+(braucht einen ISP-Programmer), eines mit abgeschaltetem Auto-Reset - die
+RESET-EN-Brücke aufzutrennen ist ein verbreiteter Trick, damit das Board beim
+Öffnen eines Ports nicht neu startet, und er sperrt das Flashen gleich mit - und
+alles, was kein ATmega328P oder 168 ist; das fängt die Signaturprüfung ab. Ein
+Fall geht still schief: ein für 16 MHz gebauter Sketch auf einem 8-MHz-Board
+meldet brav seine Version und funkt mit halber Symbolzeit. Den Takt kann eine
+Signatur nicht unterscheiden.
+
+Kaputtflashen kann man das Board nicht. Der Bootloader liegt in einem
+geschützten Flash-Bereich und kann sich nicht selbst überschreiben; schlimmster
+Fall ist ein kaputter Sketch bei intaktem Bootloader - genau der Zustand, für
+den der Reparaturweg oben da ist.
+
+**Firmware und Sketch zusammenhalten.** Geflasht wird `arduino/maxxfan_tx.hex`,
+die Datei muss also zum Sketch passen. [`tools/build-hex.sh`](tools/build-hex.sh)
+baut sie zusammen mit der Versionsdatei aus `SKETCH_VERSION` im Sketch, und ein
+GitHub-Workflow baut beides bei jeder Änderung neu und schlägt fehl, wenn das
+Committete veraltet ist.
 
 ### Warum `switch` und kein Lüfter-Dienst
 

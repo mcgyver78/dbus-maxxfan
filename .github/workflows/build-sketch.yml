@@ -1,0 +1,71 @@
+name: sketch
+
+# The driver flashes arduino/maxxfan_tx.hex onto the Arduino, so that file has
+# to match the sketch in the repository. This rebuilds it and complains if the
+# committed one is stale - a mismatch would mean the card offers an "update"
+# that installs an older sketch than the one people are reading.
+
+on:
+  push:
+    paths:
+      - 'arduino/**'
+      - '.github/workflows/build-sketch.yml'
+  pull_request:
+    paths:
+      - 'arduino/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install arduino-cli
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+            | BINDIR="$HOME/bin" sh
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Install the AVR core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+
+      - name: Build
+        run: |
+          cp arduino/maxxfan_tx.hex /tmp/committed.hex || true
+          cp arduino/maxxfan_tx.hex.ver /tmp/committed.ver || true
+          tools/build-hex.sh
+
+      - name: Compare with what is committed
+        run: |
+          fail=0
+          if ! cmp -s /tmp/committed.ver arduino/maxxfan_tx.hex.ver; then
+            echo "::error::maxxfan_tx.hex.ver is stale - SKETCH_VERSION says $(cat arduino/maxxfan_tx.hex.ver)"
+            fail=1
+          fi
+          if ! cmp -s /tmp/committed.hex arduino/maxxfan_tx.hex; then
+            echo "::error::maxxfan_tx.hex does not match the sketch. Run tools/build-hex.sh and commit the result."
+            echo "(a different arduino-cli or core version can also cause this)"
+            fail=1
+          fi
+          exit $fail
+
+      - name: Upload the freshly built firmware
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maxxfan_tx-hex
+          path: |
+            arduino/maxxfan_tx.hex
+            arduino/maxxfan_tx.hex.ver
+
+      - name: Sketch tests
+        run: |
+          cd tools/test-sketch
+          g++ -std=c++17 -D__AVR_ATmega328P__ -I. -include Arduino.h \
+              -x c++ ../../arduino/maxxfan_tx/maxxfan_tx.ino lines_main.cpp \
+              -o /tmp/test-sketch -Wall -Wextra
+          /tmp/test-sketch

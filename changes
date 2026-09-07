@@ -1,3 +1,37 @@
+v1.3
+  The transmitter can be flashed from the GX device. Venus OS has no avrdude,
+  but the Arduino bootloader speaks STK500v1, and tools/flash.py implements
+  enough of it over pyserial - so once the Arduino is plugged into the GX it
+  never has to go back to a laptop.
+
+  The sketch now answers "MAXXFAN <protocol> <version>", the driver publishes
+  that version on the device page, and a new element in the bottom right of the
+  card shows both firmware versions and flashes the Arduino when pressed:
+
+      Transmitter 1.2 (update to 1.3)
+
+  It is called Transmitter because the card sorts its controls by label, which
+  puts it after Speed and clear of the fan controls.
+
+  Flashing happens on the button, never by itself, with exactly one exception:
+  if the port that identified as ours last time now has a bootloader but no
+  working sketch - an interrupted update - the driver finishes the job at
+  startup. Anywhere else a bootloader is not enough, because it only says an
+  AVR lives here, not whose project it runs. The bootloader cannot overwrite
+  itself, so a failed write leaves a broken sketch and a working bootloader,
+  which is what that repair path is for.
+
+  arduino/maxxfan_tx.hex ships with the package. tools/build-hex.sh builds it
+  and its version file from SKETCH_VERSION in the sketch, and a GitHub workflow
+  rebuilds both on every change and fails if what is committed is stale - a
+  stale .hex would make the card offer an update that installs an older sketch.
+
+  Also new: tools/test-flash.py drives the programmer against a simulated
+  STK500v1 bootloader on a pty (16 checks: hex parsing, checksums, page
+  writing, verification catching a bad page, wrong signature, silent port,
+  closed sync window), and tools/test-sketch/ runs the sketch's serial parsing
+  on any machine without an Arduino.
+
 v1.2
   A code review of v1.1 found one problem that could damage an unrelated part of
   the system, and a number of smaller ones. Nothing here changes how the fan is
