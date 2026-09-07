@@ -88,10 +88,58 @@ control produces one packet rather than twenty.
 
 ### Installation
 
-#### With SetupHelper (recommended)
+Three routes. The first needs no console, no SSH and nothing typed anywhere.
 
-Install [SetupHelper](https://github.com/kwindrem/SetupHelper), then in the GX
-menu go to *Settings → Package manager → Inactive packages → new* and enter:
+#### From a USB stick
+
+Venus OS unpacks archives it finds on removable media at boot, and
+[SetupHelper](https://github.com/kwindrem/SetupHelper)'s Package manager
+installs package archives lying next to them. Two files and an empty third one
+turn that into a complete install on a GX device that has never been touched.
+
+You need a USB stick or SD card, **formatted FAT32**, and two downloads:
+
+1. [`maxxfan-usb.zip`](https://github.com/mcgyver78/dbus-maxxfan/releases/download/usb/maxxfan-usb.zip)
+   — this driver, packed the way Package manager expects it
+2. [`venus-data-SetupHelperInstall.tgz`](https://github.com/kwindrem/SetupHelper/raw/main/venus-data-SetupHelperInstall.tgz)
+   — SetupHelper itself, from its own repository. Nothing happens without it.
+
+Unzip the first one onto the stick and drop the second next to it. The stick
+has to end up looking exactly like this — everything loose on the stick, not
+inside a folder:
+
+```
+USB stick
+├── venus-data-SetupHelperInstall.tgz
+├── dbus-maxxfan-latest.tar.gz
+└── AUTO_INSTALL_PACKAGES        <- empty file; its presence is the instruction
+```
+
+Then: stick into the GX device, power it off and on, wait for the display to
+come back — a few minutes, noticeably longer than a normal start — and pull
+the stick out. *Settings* now has *Package manager* at the bottom, and the fan
+appears in the switch pane as soon as the Arduino is plugged into a USB port.
+A bare Arduino is flashed on the spot; see
+[below](#updating-the-arduino-from-the-gx).
+
+If the fan does not appear, leave the stick in and reboot once more: on some
+firmware versions SetupHelper arrives too late in the first boot to notice the
+package sitting beside it.
+
+Two things trip people up. Safari unpacks `.tgz` files by itself — turn off
+*Open safe files after downloading* in its settings and download again. And an
+unzipper that creates a folder has put the files one level too deep; the
+listing above is what the stick must look like.
+
+The zip is rebuilt by a workflow on every change, so that link always carries
+the current version. `tools/make-usb-zip.sh` builds the same thing locally.
+SetupHelper's own installer is not in the zip because its repository carries no
+licence, so it is not this project's to redistribute.
+
+#### From the Package manager
+
+For a GX device that already has SetupHelper. *Settings → Package manager →
+Inactive packages → new*, and enter:
 
 | Field | Value |
 |---|---|
@@ -111,6 +159,20 @@ cd /data
 git clone https://github.com/mcgyver78/dbus-maxxfan.git
 /data/dbus-maxxfan/setup
 ```
+
+#### Staying up to date
+
+The package ships an empty `AUTO_INSTALL` file, which SetupHelper reads as
+"install a new version of this package as soon as one arrives" — whether it
+came from GitHub or from a stick, and whether or not automatic installs are
+switched on for everything else. It only speaks for this package.
+
+Fetching new versions is a system-wide decision and stays one:
+`/Settings/PackageManager/GitHubAutoDownload` is `0` (off, version checks
+still happen) by default, and `1` fast, `2` hourly, `3` daily are the
+alternatives. Set it in the Package manager menu, and updates arrive and
+install themselves. Venus OS firmware updates wipe the installed files;
+SetupHelper puts every package back afterwards on its own.
 
 ### Requirements
 
@@ -586,10 +648,60 @@ Drehzahlregler zu ziehen erzeugt so ein Paket statt zwanzig.
 
 ### Installation
 
-#### Mit SetupHelper (empfohlen)
+Drei Wege. Der erste braucht keine Konsole, kein SSH und nichts Getipptes.
 
-[SetupHelper](https://github.com/kwindrem/SetupHelper) installieren, dann im
-GX-Menü unter *Settings → Package manager → Inactive packages → new* eintragen:
+#### Vom USB-Stick
+
+Venus OS entpackt beim Start Archive, die es auf einem Wechseldatenträger
+findet, und der Package Manager von
+[SetupHelper](https://github.com/kwindrem/SetupHelper) installiert
+Paketarchive, die daneben liegen. Zwei Dateien und eine leere dritte machen
+daraus eine vollständige Installation auf einem GX-Gerät, das noch nie
+angefasst wurde.
+
+Gebraucht wird ein USB-Stick oder eine SD-Karte, **FAT32 formatiert**, und
+zwei Downloads:
+
+1. [`maxxfan-usb.zip`](https://github.com/mcgyver78/dbus-maxxfan/releases/download/usb/maxxfan-usb.zip)
+   — dieser Treiber, so verpackt, wie der Package Manager ihn erwartet
+2. [`venus-data-SetupHelperInstall.tgz`](https://github.com/kwindrem/SetupHelper/raw/main/venus-data-SetupHelperInstall.tgz)
+   — SetupHelper selbst, aus seinem eigenen Repo. Ohne ihn passiert nichts.
+
+Das erste auf den Stick entpacken, das zweite danebenlegen. So muss der Stick
+danach aussehen — alles direkt auf dem Stick, nicht in einem Ordner:
+
+```
+USB-Stick
+├── venus-data-SetupHelperInstall.tgz
+├── dbus-maxxfan-latest.tar.gz
+└── AUTO_INSTALL_PACKAGES        <- leere Datei; dass sie da ist, ist die Anweisung
+```
+
+Dann: Stick ins GX-Gerät, Strom weg und wieder dran, warten bis die Oberfläche
+zurück ist — ein paar Minuten, merklich länger als sonst — und den Stick
+abziehen. Unter *Einstellungen* steht jetzt ganz unten *Package manager*, und
+der Lüfter erscheint im Schalterbereich, sobald der Arduino an einem USB-Port
+steckt. Ein nackter Arduino wird dabei gleich geflasht, siehe
+[weiter unten](#den-arduino-vom-gx-aus-aktualisieren).
+
+Erscheint der Lüfter nicht: Stick drinlassen und noch einmal neu starten. Auf
+manchen Firmware-Ständen kommt SetupHelper im ersten Start zu spät, um das
+Paket neben sich zu bemerken.
+
+Zwei Stolpersteine. Safari entpackt `.tgz`-Dateien von selbst — in den
+Einstellungen *Sichere Dateien nach dem Laden öffnen* abschalten und noch
+einmal laden. Und ein Entpacker, der einen Ordner anlegt, hat die Dateien eine
+Ebene zu tief abgelegt; die Auflistung oben ist, wie der Stick aussehen muss.
+
+Das Zip wird bei jeder Änderung neu gebaut, der Link trägt also immer die
+aktuelle Version. `tools/make-usb-zip.sh` baut dasselbe lokal. SetupHelpers
+eigener Installer liegt nicht im Zip: Sein Repo führt keine Lizenz, er gehört
+diesem Projekt also nicht zum Weiterverteilen.
+
+#### Über den Package Manager
+
+Für ein GX-Gerät, auf dem SetupHelper schon läuft. *Settings → Package manager
+→ Inactive packages → new*, und eintragen:
 
 | Feld | Wert |
 |---|---|
@@ -609,6 +721,21 @@ cd /data
 git clone https://github.com/mcgyver78/dbus-maxxfan.git
 /data/dbus-maxxfan/setup
 ```
+
+#### Aktuell bleiben
+
+Das Paket bringt eine leere Datei `AUTO_INSTALL` mit. SetupHelper liest das als
+„eine neue Version dieses Pakets sofort installieren" — egal ob sie von GitHub
+oder von einem Stick kam, und unabhängig davon, ob automatische Installationen
+sonst eingeschaltet sind. Sie spricht nur für dieses Paket.
+
+Ob überhaupt neue Versionen geholt werden, ist eine systemweite Entscheidung
+und bleibt eine: `/Settings/PackageManager/GitHubAutoDownload` steht
+standardmäßig auf `0` (aus, Versionsprüfungen laufen weiter), Alternativen sind
+`1` schnell, `2` stündlich, `3` täglich. Im Package-Manager-Menü einstellen,
+dann kommen Updates von selbst und installieren sich auch. Venus-OS-Firmware-
+Updates löschen die installierten Dateien; SetupHelper setzt danach alle Pakete
+von sich aus wieder ein.
 
 ### Voraussetzungen
 

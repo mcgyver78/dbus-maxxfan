@@ -1,0 +1,55 @@
+name: usb stick
+
+# Publishes the USB stick that installs this driver on a GX device with no
+# console and no SSH, so the download link in the ReadMe is always current.
+#
+# The asset hangs off a rolling tag rather than a version tag: the point of the
+# link is that it never changes, and whoever is standing in front of a camper
+# with a phone should not have to work out which release is the newest.
+
+on:
+  push:
+    branches: [latest]
+    paths-ignore:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the stick
+        run: sh tools/make-usb-zip.sh usb-build
+
+      - name: Check it is what PackageManager expects
+        run: |
+          set -e
+          cd usb-build
+          test -f AUTO_INSTALL_PACKAGES
+          # <package>-<branch>.tar.gz with a matching top level directory
+          tar -tzf dbus-maxxfan-latest.tar.gz | head -1 | \
+              grep -qx 'dbus-maxxfan-latest/'
+          for f in version gitHubInfo setup dbus-maxxfan.py \
+                   arduino/maxxfan_tx.hex services/dbus-maxxfan/run; do
+              tar -tzf dbus-maxxfan-latest.tar.gz | \
+                  grep -qx "dbus-maxxfan-latest/$f" || \
+                  { echo "missing from the archive: $f"; exit 1; }
+          done
+          echo "stick contents ok"
+
+      - name: Publish it under the rolling tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          V=$(cat version)
+          gh release create usb --title "USB stick installer" \
+             --notes "Latest USB stick image. Unzip onto a FAT32 stick, add SetupHelper's venus-data-SetupHelperInstall.tgz, boot the GX device. See LIESMICH.txt inside." \
+             2>/dev/null || true
+          gh release upload usb usb-build/maxxfan-usb.zip --clobber
+          gh release edit usb --notes "dbus-maxxfan $V - unzip onto a FAT32 stick, add SetupHelper's venus-data-SetupHelperInstall.tgz next to it, boot the GX device. Instructions in LIESMICH.txt inside the zip."

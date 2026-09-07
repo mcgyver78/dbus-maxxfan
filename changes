@@ -1,3 +1,26 @@
+v1.5
+  A GX device with nothing on it can now be set up from a USB stick, without a
+  console, an SSH session or anything typed. Venus OS unpacks archives it finds
+  on removable media at boot and SetupHelper's Package manager installs package
+  archives lying beside them, so a stick carrying SetupHelper's installer, this
+  package and an empty AUTO_INSTALL_PACKAGES file is a complete install.
+
+  tools/make-usb-zip.sh builds that stick, and a workflow republishes it on
+  every change under a rolling tag, so the download link in the ReadMe always
+  carries the current version. SetupHelper's own installer is not in the zip -
+  its repository carries no licence - and the note inside the zip says where to
+  get it. Together with the adoption path from v1.4 the whole chain needs no
+  laptop: stick in, reboot, plug in a bare Arduino, and the fan appears.
+
+  The package now ships an empty AUTO_INSTALL file, which SetupHelper reads as
+  "install a new version of this package as soon as one arrives", whether or
+  not automatic installs are enabled system-wide. It speaks only for this
+  package; whether new versions are fetched at all stays the system-wide
+  GitHubAutoDownload setting, and the ReadMe now documents its modes.
+
+  Documentation only otherwise - the driver, the sketch and the firmware are
+  unchanged.
+
 v1.4
   A bare Arduino can now be brought into service without a laptop. Until now
   the first board on a GX device was a chicken and egg: nothing identified
