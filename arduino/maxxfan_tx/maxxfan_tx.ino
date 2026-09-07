@@ -30,7 +30,8 @@
  * Board: Arduino Nano / Uno / Pro Mini (ATmega328P). MIT licence.
  */
 
-#if !defined(__AVR_ATmega328P__) && !defined(__AVR_ATmega168__)
+#if !defined(__AVR_ATmega328P__) && !defined(__AVR_ATmega328__) && \
+    !defined(__AVR_ATmega168P__) && !defined(__AVR_ATmega168__)
 #error "This sketch drives timer 1 directly and needs an ATmega328P board (classic Nano, Uno, Pro Mini)."
 #endif
 
@@ -148,6 +149,15 @@ static bool build_packet(int on, int speed, int exhaust, int cover,
   return true;
 }
 
+/* The warn bit is a one-shot: leaving it set would make R beep again. */
+static void clear_warn()
+{
+  if (packet[10] & 0x20) {
+    packet[10] &= ~0x20;
+    packet[15] = packet[10] ^ packet[11] ^ packet[12] ^ packet[13] ^ packet[14];
+  }
+}
+
 static void print_packet()
 {
   Serial.print(F("OK "));
@@ -163,6 +173,7 @@ static void print_packet()
 
 static char line[64];
 static uint8_t fill;
+static bool too_long;
 
 static void handle(char *s)
 {
@@ -182,12 +193,19 @@ static void handle(char *s)
   if (s[0] == 'S') {
     int v[7];
     uint8_t n = 0;
+    bool bad = false;
     char *tok = strtok(s + 1, " \t");
     while (tok != NULL && n < 7) {
-      v[n++] = atoi(tok);
+      char *end;
+      long x = strtol(tok, &end, 10);
+      /* atoi would wrap at 16 bits and swallow trailing junk, so 65636 would
+       * arrive as 100 and pass every range check below. */
+      if (end == tok || *end != 0 || x < -32768L || x > 32767L)
+        bad = true;
+      v[n++] = (int)x;
       tok = strtok(NULL, " \t");
     }
-    if (n != 7 || tok != NULL) {
+    if (n != 7 || tok != NULL || bad) {
       Serial.println(F("ERR expected 7 values"));
       return;
     }
@@ -197,6 +215,7 @@ static void handle(char *s)
     }
     send_packet();
     print_packet();
+    clear_warn();
     return;
   }
   Serial.println(F("ERR unknown command"));
@@ -213,18 +232,19 @@ void loop()
 {
   while (Serial.available()) {
     char c = Serial.read();
-    if (c == '\r')
-      continue;
-    if (c == '\n') {
+    if (c == '\n' || c == '\r') {    /* either ending terminates a line */
       line[fill] = 0;
-      if (fill > 0)
+      if (too_long)
+        Serial.println(F("ERR line too long"));
+      else if (fill > 0)
         handle(line);
       fill = 0;
+      too_long = false;
       continue;
     }
     if (fill < sizeof(line) - 1)
       line[fill++] = c;
     else
-      fill = 0;                       /* overlong line, drop it */
+      too_long = true;                /* discard the whole line, not one byte */
   }
 }

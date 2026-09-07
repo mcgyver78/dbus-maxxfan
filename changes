@@ -1,3 +1,65 @@
+v1.2
+  A code review of v1.1 found one problem that could damage an unrelated part of
+  the system, and a number of smaller ones. Nothing here changes how the fan is
+  controlled; it changes what happens when something goes wrong.
+
+  The service used to hand every candidate port to stop-tty.sh before the driver
+  knew which one was the Arduino, and never called start-tty.sh. Those are chip
+  names, not device names: Victron's RS485-to-USB interface - the cable to a
+  Carlo Gavazzi grid meter - is a plain FTDI FT232R and matched the same glob.
+  On such a system the meter lost its driver at every start of this service, did
+  not come back, and with no Arduino present the whole thing repeated every
+  twelve seconds. The release now happens in the driver, for one port at a time,
+  immediately around the identification, and a port that does not answer is
+  handed straight back. The port that did answer is remembered, so from the
+  second start onwards no foreign port is touched at all. The ReadMe describes
+  the udev rule that avoids the whole dance.
+
+  A value the driver refused was stored and published anyway. The callbacks
+  returned True, which vedbus takes as "accepted" and which makes it store the
+  caller's value - so a stepped switch sending step numbers left the display
+  showing 3 % while the fan ran at 50. All the guards now return False.
+
+  A dead serial link stayed dead. A USB re-enumeration leaves the by-id path in
+  place and the file descriptor unusable, and the driver only exited when the
+  path was gone. It now also exits when the port moved to a different tty or
+  when several transmits in a row failed, so daemontools can start it again.
+
+  A failed transmit is retried three times instead of being dropped silently,
+  because the state was already stored and shown before it went out.
+
+  Resend transmits the shadow state instead of asking the sketch to repeat its
+  last packet - after a GX reboot the sketch has none, so the button failed in
+  exactly the situation it exists for, and marked the device disconnected.
+
+  Also: outputs configured as a toggle no longer spring back to on, because
+  /State is only forced for the types that carry their value in /Dimming; a type
+  outside ValidTypes is refused; CustomName, Group and ShowUIControl are stored
+  instead of silently reverting at the next start; a stored speed the fan cannot
+  do is snapped into range instead of blocking every transmit; /State stops
+  reporting Connected while /Connected is 0; /HardwareVersion is published.
+
+  The sketch discarded only one character of an over-long line and then executed
+  the rest as a command - 64 characters of padding followed by a command would
+  run that command. The whole line is dropped now and answered with ERR. Numbers
+  are parsed with strtol: atoi is 16 bit on AVR, so 65636 arrived as 100 and
+  passed every range check. A bare CR terminates a line as well, so a client
+  with CR endings no longer waits forever, and the warn bit is cleared after
+  transmitting so R does not beep a second time.
+
+  find-port.sh no longer lists an FTDI twice - it matched both the FTDI and the
+  FT232 pattern. The documented test one-liner takes the port the driver
+  identified rather than the first candidate.
+
+  ReadMe: the claim that the port search never matches Victron's own cables was
+  wrong and is corrected; the setpoint statistic said 20 of 38 and is 18 of 40;
+  the service name is marked as an example, since it follows the tty; the manual
+  installation route needs SetupHelper too. The screenshot is 45 kB instead of
+  237 kB, because SetupHelper copies it onto every GX device.
+
+  New: tools/test-driver-logic.py, which runs the D-Bus behaviour against a fake
+  service with vedbus's real accept/reject semantics, without a GX device.
+
 v1.1
   the speed control is a basic slider now, not a stepped switch. The stepped
   switch turned out to send the number of the position it sits on - 1 to 7 -

@@ -38,6 +38,12 @@ One card named *MaxxFan*, holding eight controls:
 Every control also appears under `/SwitchableOutput/<name>/…` on D-Bus, so
 Node-RED and MQTT can read and write the same values.
 
+The service is named after the port the Arduino got — `maxxfan_ttyUSB0` in the
+examples below, but `ttyUSB1` as soon as something else enumerates first, and it
+can change across reboots. `dbus -y | grep maxxfan` gives the current one. The
+*device instance* is stable: it lives in
+`/Settings/Devices/maxxfan/ClassAndVrmInstance`.
+
 The type of each control can be changed from the GX device page, and the change
 is stored — if the slider for the speed does not suit you, set it to a dimmer
 instead. `ValidTypes` lists what each output allows.
@@ -95,6 +101,9 @@ menu go to *Settings → Package manager → Inactive packages → new* and ente
 Then *Proceed* → *Install*.
 
 #### Manually
+
+SetupHelper is needed either way — the setup script is a thin wrapper around it.
+This route only skips the Package manager screen.
 
 ```bash
 cd /data
@@ -204,9 +213,15 @@ range are refused with `ERR` rather than sent. The setpoint is given in
 Fahrenheit here because that is the unit on the wire; the driver converts.
 
 The identification query is what makes the port safe to find. The driver globs
-`/dev/serial/by-id/` for CH340, FTDI, CP210x and Arduino names — never for
-Victron's own cables — and then asks each candidate to identify itself before
-sending it a single command.
+`/dev/serial/by-id/` for CH340, FTDI, CP210x and Arduino names, and then asks
+each candidate to identify itself before sending it a single command.
+
+Those are chip names, not device names, and the distinction matters: Victron's
+VE.Direct-USB and MK3-USB cables carry their own descriptors and never match,
+but the **RS485-to-USB interface** — the cable that connects a Carlo Gavazzi
+grid meter — is a plain FTDI FT232R and looks exactly like an Arduino in the
+by-id listing. A match is therefore only ever a reason to ask, never a reason to
+act. See [Serial starter](#serial-starter) for what that means in practice.
 
 ### Why `switch` and not a fan service
 
@@ -263,8 +278,8 @@ degF = trunc(degC × 1.8) + 32
 ```
 
 That is not the same as rounding. A rounded conversion is off by one degree
-Fahrenheit on 20 of the 38 setpoints — 21 °C becomes 70 °F instead of the 69 °F
-the remote sends. The driver uses the truncating form, so a setpoint entered on
+Fahrenheit on 18 of the 40 setpoints in the −2 … 37 °C range — 21 °C becomes
+70 °F instead of the 69 °F the remote sends. The driver uses the truncating form, so a setpoint entered on
 the GX matches the one shown on the fan.
 
 #### Verified against the original remote
@@ -278,7 +293,15 @@ result symbol by symbol:
 python3 tools/verify-encoder.py Maxxfan_collection.ir
 ```
 
-All 99 reproduce exactly. That comparison is also where the 834 µs symbol period
+All 99 reproduce exactly. [`tools/test-driver-logic.py`](tools/test-driver-logic.py)
+covers the other half — it fakes the D-Bus service with the same accept/reject
+semantics vedbus really has and checks that a control which sends step numbers
+is refused rather than stored, that a failed transmit is retried and then gives
+up, that a port which does not identify is handed back to serial-starter, and
+that a stored value the fan cannot do is snapped into range. Both run without a
+GX device.
+
+The capture comparison is also where the 834 µs symbol period
 and the truncating temperature conversion come from — both differ from the
 widely used [ESPHome component](https://github.com/brown-studios/esphome-maxxfan-protocol),
 which the fan accepts as well, but matching the original leaves the widest
@@ -287,10 +310,34 @@ margin on a weak or off-axis infrared path.
 ### Serial starter
 
 Venus OS attaches a service to every new `ttyUSB` and probes it for VE.Direct and
-MK2. That probing toggles DTR, which on an Arduino means a reset — so the
-bundled service releases the candidate ports with `stop-tty.sh` before the driver
-starts. For the same reason the driver opens the port once and keeps it open;
-re-opening it per command would reboot the transmitter every time.
+MK2. That probing toggles DTR, which on an Arduino means a reset, so the port has
+to be taken away from serial-starter before the driver can use it.
+
+The driver does that **for one port at a time, and only around the question**:
+it releases a candidate with `stop-tty.sh`, asks it to identify itself, and if
+the answer is not `MAXXFAN` it calls `start-tty.sh` and hands the port straight
+back. A foreign device loses its Venus driver for about a second instead of
+until the next reboot. The port that did answer is remembered in the settings,
+so from the second start onwards no other port is touched at all.
+
+For the same reason the driver opens the port once and keeps it open; re-opening
+it per command would reboot the transmitter every time.
+
+**The permanent fix, if you want one.** Releasing a port at all is a workaround.
+The Venus way to keep serial-starter off a specific device is a udev rule keyed
+on its serial number — your Arduino has one, an FTDI always does:
+
+```bash
+/opt/victronenergy/swupdate-scripts/remount-rw.sh
+echo 'ACTION=="add", ENV{ID_BUS}=="usb", ENV{ID_SERIAL_SHORT}=="A50285BI", ENV{VE_SERVICE}="ignore"' \
+    >> /etc/udev/rules.d/serial-starter.rules
+udevadm control --reload
+```
+
+Substitute your own serial number — the driver logs the by-id path it found, and
+the serial is the part before `-if00`. This survives replugging but not a
+firmware update, because the root filesystem is replaced; the driver's own
+release still covers that case.
 
 ### Troubleshooting
 
@@ -337,7 +384,8 @@ means both see garbage:
 ```bash
 svc -d /service/dbus-maxxfan
 sleep 2
-PORT=$(/data/dbus-maxxfan/find-port.sh | head -1)
+# the port the driver identified, not just the first candidate
+PORT=$(grep -o '/dev/serial/by-id/[^ ]*' /var/log/dbus-maxxfan/current | tail -1)
 python3 -c "
 import serial, time
 s = serial.Serial('$PORT', 115200, timeout=2); time.sleep(2)
@@ -404,6 +452,12 @@ Eine Karte namens *MaxxFan* mit acht Bedienelementen:
 Alle Elemente liegen zusätzlich unter `/SwitchableOutput/<name>/…` auf dem D-Bus
 und sind damit aus Node-RED und über MQTT les- und schreibbar.
 
+Der Dienstname richtet sich nach dem Port, den der Arduino bekommen hat — unten
+steht überall `maxxfan_ttyUSB0`, es kann aber `ttyUSB1` sein, sobald etwas
+anderes zuerst erkannt wird, und er kann sich nach einem Neustart ändern.
+`dbus -y | grep maxxfan` zeigt den aktuellen. Die *Geräteinstanz* bleibt stabil,
+sie steht in `/Settings/Devices/maxxfan/ClassAndVrmInstance`.
+
 Der Typ jedes Elements lässt sich auf der GX-Geräteseite umstellen und wird
 gespeichert — wem der Schieberegler für die Drehzahl nicht gefällt, stellt ihn
 auf Dimmer um. `ValidTypes` sagt je Ausgang, was erlaubt ist.
@@ -463,6 +517,9 @@ GX-Menü unter *Settings → Package manager → Inactive packages → new* eint
 Anschließend *Proceed* → *Install*.
 
 #### Manuell
+
+SetupHelper wird so oder so gebraucht — das setup-Skript ist nur eine dünne
+Hülle darum. Dieser Weg spart lediglich den Umweg über die Package-Manager-Maske.
 
 ```bash
 cd /data
@@ -576,9 +633,15 @@ nicht gesendet. Der Sollwert steht hier in Fahrenheit, weil das die Einheit auf
 dem Draht ist — der Treiber rechnet um.
 
 Die Typabfrage ist das, was die Portsuche sicher macht. Der Treiber sucht in
-`/dev/serial/by-id/` nach CH340-, FTDI-, CP210x- und Arduino-Namen — nie nach
-Victrons eigenen Kabeln — und lässt jeden Kandidaten sich identifizieren, bevor
-ein einziges Kommando hinausgeht.
+`/dev/serial/by-id/` nach CH340-, FTDI-, CP210x- und Arduino-Namen und lässt
+jeden Kandidaten sich identifizieren, bevor ein einziges Kommando hinausgeht.
+
+Das sind Chipnamen, keine Gerätenamen, und der Unterschied ist wichtig: Victrons
+VE.Direct-USB- und MK3-USB-Kabel bringen eigene Deskriptoren mit und tauchen nie
+auf — das **RS485-zu-USB-Interface** dagegen, das Kabel zum Carlo-Gavazzi-Zähler,
+ist ein blanker FTDI FT232R und sieht in der by-id-Liste aus wie ein Arduino. Ein
+Treffer ist deshalb immer nur ein Grund nachzufragen, nie ein Grund zu handeln.
+Was das praktisch heißt, steht unter [Serial-Starter](#serial-starter-1).
 
 ### Warum `switch` und kein Lüfter-Dienst
 
@@ -638,8 +701,8 @@ degF = trunc(degC × 1,8) + 32
 ```
 
 Das ist nicht dasselbe wie Runden. Gerundet liegt man bei 20 der 38 Sollwerte um
-ein Grad Fahrenheit daneben: aus 21 °C würden 70 °F statt der 69 °F, die die
-Fernbedienung sendet. Der Treiber schneidet ab, damit ein am GX eingestellter
+ein Grad Fahrenheit daneben — bei 18 der 40 Werte im Bereich −2 … 37 °C: aus
+21 °C würden 70 °F statt der 69 °F, die die Fernbedienung sendet. Der Treiber schneidet ab, damit ein am GX eingestellter
 Sollwert dem entspricht, den der Lüfter anzeigt.
 
 #### Geprüft gegen die Originalfernbedienung
@@ -653,7 +716,16 @@ und vergleicht Symbol für Symbol:
 python3 tools/verify-encoder.py Maxxfan_collection.ir
 ```
 
-Alle 99 stimmen exakt. Aus diesem Vergleich stammen auch die 834 µs Symbolzeit
+Alle 99 stimmen exakt. [`tools/test-driver-logic.py`](tools/test-driver-logic.py)
+deckt die andere Hälfte ab: Es bildet den D-Bus-Dienst mit derselben
+Annehmen/Ablehnen-Logik nach, die vedbus tatsächlich hat, und prüft, dass ein
+Bedienelement, das Stufennummern schickt, abgelehnt statt gespeichert wird, dass
+eine fehlgeschlagene Sendung wiederholt wird und der Dienst danach aufgibt, dass
+ein Port ohne Identifikation an den serial-starter zurückgeht und dass ein
+gespeicherter Wert, den der Lüfter nicht kann, in den zulässigen Bereich gerückt
+wird. Beides läuft ohne GX-Gerät.
+
+Aus dem Vergleich mit den Aufnahmen stammen auch die 834 µs Symbolzeit
 und die abschneidende Temperaturumrechnung — beides weicht von der verbreiteten
 [ESPHome-Komponente](https://github.com/brown-studios/esphome-maxxfan-protocol)
 ab, die der Lüfter zwar ebenfalls akzeptiert; nah am Original zu bleiben lässt
@@ -663,10 +735,36 @@ aber den größten Spielraum bei schwacher oder schräger Infrarotstrecke.
 
 Venus OS hängt an jedes neue `ttyUSB` einen Dienst und probiert VE.Direct und
 MK2 durch. Dieses Abtasten zieht DTR, und das heißt bei einem Arduino: Reset. Der
-mitgelieferte Dienst gibt die Kandidatenports deshalb vor dem Start mit
-`stop-tty.sh` frei. Aus demselben Grund öffnet der Treiber den Port einmal und
-hält ihn offen — ihn pro Kommando neu zu öffnen würde den Sender jedes Mal neu
-starten.
+Port muss dem serial-starter also entzogen werden, bevor der Treiber ihn nutzen
+kann.
+
+Das tut der Treiber **für genau einen Port und nur um die Frage herum**: Er gibt
+einen Kandidaten mit `stop-tty.sh` frei, lässt ihn sich identifizieren, und wenn
+die Antwort nicht `MAXXFAN` lautet, ruft er `start-tty.sh` und gibt den Port
+sofort zurück. Ein fremdes Gerät verliert seinen Venus-Treiber damit für etwa
+eine Sekunde statt bis zum nächsten Neustart. Der Port, der geantwortet hat,
+steht danach in den Settings — ab dem zweiten Start wird kein anderer mehr
+angefasst.
+
+Aus demselben Grund öffnet der Treiber den Port einmal und hält ihn offen — ihn
+pro Kommando neu zu öffnen würde den Sender jedes Mal neu starten.
+
+**Die dauerhafte Lösung, wenn du eine willst.** Einen Port überhaupt freizugeben
+ist ein Behelf. Der Venus-Weg, serial-starter von einem bestimmten Gerät
+fernzuhalten, ist eine udev-Regel auf die Seriennummer — dein Arduino hat eine,
+FTDI-Chips haben immer eine:
+
+```bash
+/opt/victronenergy/swupdate-scripts/remount-rw.sh
+echo 'ACTION=="add", ENV{ID_BUS}=="usb", ENV{ID_SERIAL_SHORT}=="A50285BI", ENV{VE_SERVICE}="ignore"' \
+    >> /etc/udev/rules.d/serial-starter.rules
+udevadm control --reload
+```
+
+Die eigene Seriennummer einsetzen — der Treiber schreibt den gefundenen
+by-id-Pfad ins Log, die Seriennummer ist der Teil vor `-if00`. Das übersteht
+Umstecken, aber kein Firmware-Update, weil das Root-Dateisystem ersetzt wird;
+dafür greift dann wieder die Freigabe durch den Treiber.
 
 ### Fehlersuche
 
@@ -716,7 +814,8 @@ seriellen Port bedeuten für beide Müll:
 ```bash
 svc -d /service/dbus-maxxfan
 sleep 2
-PORT=$(/data/dbus-maxxfan/find-port.sh | head -1)
+# der Port, den der Treiber identifiziert hat, nicht einfach der erste Kandidat
+PORT=$(grep -o '/dev/serial/by-id/[^ ]*' /var/log/dbus-maxxfan/current | tail -1)
 python3 -c "
 import serial, time
 s = serial.Serial('$PORT', 115200, timeout=2); time.sleep(2)
