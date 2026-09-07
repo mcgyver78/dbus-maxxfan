@@ -1,3 +1,28 @@
+v1.4
+  A bare Arduino can now be brought into service without a laptop. Until now
+  the first board on a GX device was a chicken and egg: nothing identified
+  itself, so no service appeared, so there was no button to press, so the
+  sketch had to come from the Arduino IDE.
+
+  On an installation that has never had a transmitter, and only there, the
+  driver now flashes the one AVR bootloader it finds among the candidate
+  ports. Exactly one: two AVRs and it keeps its hands off rather than
+  overwrite somebody's other project, and a port that is remembered - even a
+  port that has since disappeared - means this is not a fresh installation
+  and nothing is adopted. It is attempted once per installation, recorded in
+  /Settings/Devices/maxxfan/AdoptAttempted, so a board that cannot be flashed
+  is not reset every time daemontools restarts the service.
+
+  A port named on the command line is now flashed if it is bare, for the same
+  reason the remembered port is: naming it says whose board it is.
+
+  Fixed: the repair path asked the bootloader for its signature after probe()
+  had already handed the port back to serial-starter, so a Venus driver could
+  be holding it during the flash. Both flashing paths now take the port for
+  the attempt and release it only if nothing of ours is there.
+
+  Driver only - the sketch and arduino/maxxfan_tx.hex are unchanged at 1.3.
+
 v1.3
   The transmitter can be flashed from the GX device. Venus OS has no avrdude,
   but the Arduino bootloader speaks STK500v1, and tools/flash.py implements

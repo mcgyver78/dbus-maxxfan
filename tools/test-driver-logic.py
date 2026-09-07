@@ -281,6 +281,102 @@ check("a foreign port is probed and released", mod.probe("/dev/null"), None)
 check("  stop-tty first, then start-tty",
       [c[0] for c in calls], ["stop-tty.sh", "start-tty.sh"])
 
+# ---- 9. adopting the first board ----------------------------------------
+# Nothing identifies itself on a fresh install, so there is no card and no
+# button: the only board on the bus is flashed unasked. Everything here runs
+# against a fake flash module - the real one has its own test.
+avrs = {}                # port -> chip name reported by the bootloader
+flashed = []             # ports actually programmed
+programmable = set()     # ports where flashing succeeds
+
+
+class FakeFlash(object):
+    @staticmethod
+    def identify(port, log=None):
+        return avrs.get(port)
+
+    @staticmethod
+    def flash(port, hexfile, log=None):
+        flashed.append(port)
+        if port not in programmable:
+            raise IOError("verify failed")
+        return "ATmega328P"
+
+
+sys.modules["flash"] = FakeFlash
+mod.hex_version = lambda: "1.3"
+
+
+class FakeTxOn(object):
+    """A Transmitter that only answers on ports that have been flashed."""
+
+    def __init__(self, port):
+        if port not in flashed:
+            raise OSError("nothing there")
+        self.firmware, self.version, self.port = "MAXXFAN 1 1.3", "1.3", port
+
+
+def adoption(ports, avr, ok=True, tried=0):
+    del calls[:]
+    del flashed[:]
+    avrs.clear()
+    avrs.update(avr)
+    programmable.clear()
+    if ok:
+        programmable.update(avr)
+    s = FakeSettings({"adopt": tried})
+    return mod.adopt(ports, s), s
+
+
+mod.Transmitter = FakeTxOn
+(tx, port), s = adoption(["/dev/a", "/dev/b"], {"/dev/a": "ATmega328P"})
+check("one AVR and no MaxxFan: it is flashed", flashed, ["/dev/a"])
+check("  the transmitter is then open on it", (tx.version, port), ("1.3", "/dev/a"))
+check("  the port with nothing on it went back to serial-starter",
+      [c for c in calls if c[1] == "b"], [("stop-tty.sh", "b"), ("start-tty.sh", "b")])
+check("  the adopted port did not", [c for c in calls if c[1] == "a"],
+      [("stop-tty.sh", "a")])
+check("  and the attempt is recorded", s["adopt"], 1)
+
+(tx, port), s = adoption(["/dev/a", "/dev/b"],
+                         {"/dev/a": "ATmega328P", "/dev/b": "ATmega168"})
+check("two AVRs: neither is touched", flashed, [])
+check("  both go back to serial-starter",
+      sorted(c[0] for c in calls), ["start-tty.sh"] * 2 + ["stop-tty.sh"] * 2)
+check("  and nothing is recorded, so a later single board still works",
+      s["adopt"], 0)
+
+(tx, port), s = adoption(["/dev/a"], {})
+check("no AVR at all: nothing happens", (flashed, tx), ([], None))
+check("  and the flag is untouched - the sender may just be unplugged",
+      s["adopt"], 0)
+
+(tx, port), s = adoption(["/dev/a"], {"/dev/a": "ATmega328P"}, ok=False)
+check("a failed flash gives the port back", tx, None)
+check("  and is not retried on the next start", s["adopt"], 1)
+check("  the port is released", [c[0] for c in calls][-1], "start-tty.sh")
+
+(tx, port), s = adoption(["/dev/a"], {"/dev/a": "ATmega328P"}, tried=1)
+check("an install that already tried does not try again", (flashed, tx),
+      ([], None))
+
+# A remembered port means this is not a fresh install: never adopt.
+del flashed[:]
+avrs.clear()
+avrs["/dev/b"] = "ATmega328P"
+programmable.add("/dev/b")
+mod.find_ports = lambda: ["/dev/b"]
+tx, port = mod.open_transmitter(
+    ["dbus-maxxfan.py"], FakeSettings({"port": "/dev/gone", "adopt": 0}))
+check("a remembered port that is gone blocks adoption", (flashed, tx),
+      ([], None))
+
+# Naming a port explicitly is intent enough to flash it.
+del flashed[:]
+tx, port = mod.open_transmitter(["dbus-maxxfan.py", "/dev/b"], FakeSettings())
+check("a port named on the command line is flashed if it is bare",
+      (flashed, port), (["/dev/b"], "/dev/b"))
+
 print()
 if failures:
     print("%d check(s) failed" % len(failures))

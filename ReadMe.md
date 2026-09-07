@@ -245,15 +245,38 @@ It sorts after *Speed* because the card orders its controls by label, which is
 why it sits out of the way of the fan controls. Rename it and the driver stops
 touching the label.
 
-**Flashing only happens when you press it.** Not on install, not on a version
-mismatch. The one exception is repair: if the port that identified as ours last
-time now has a bootloader but no working sketch - an update that was
-interrupted - the driver finishes the job at startup. There is no doubt about
-whose board that is, and the alternative is a fan that stays dead until somebody
-carries a laptop to it.
+**When the driver flashes on its own.** Never on a version mismatch, and never
+because a board is new: an update is always a button press. There are three
+cases where it programs a board unasked, and they all come down to knowing
+whose board it is.
 
-A bootloader alone is never enough to start flashing on any other port. It only
-says "an AVR lives here", not whose project it runs.
+*The port it already knows.* If the port that identified as ours last time now
+has a bootloader but no working sketch - an update that was interrupted - the
+driver finishes the job at startup. This is also what makes a spare board a
+drop-in replacement: pull the Arduino, plug in a bare one, and it is running
+the sketch a moment later. Whether the new board really lands on the same port
+depends on the USB chip. CH340 clones usually carry no serial number, so every
+one of them appears under the same `/dev/serial/by-id` name and a swap just
+works; FTDI and CP210x have unique serial numbers, so a replacement is a
+different name and the driver leaves it alone. The flip side of the CH340
+behaviour is that two of them on one GX cannot be told apart.
+
+*The first board on a fresh installation.* Here nothing identifies itself, so
+no service appears, so there is no button to press - the sketch would have to
+come from a laptop. So when no port is remembered at all and no MaxxFan answers
+anywhere, the driver flashes the single AVR bootloader it finds among the
+candidate ports. Exactly one: two AVRs and it keeps its hands off. This is
+tried once per installation and the attempt is recorded in
+`/Settings/Devices/maxxfan/AdoptAttempted`, so a board that cannot be flashed
+is not reset every time the service restarts. Clear that setting to let it try
+again.
+
+*A port you named yourself.* `dbus-maxxfan.py /dev/serial/by-id/usb-...` flashes
+a bare board on that port, because naming it says whose it is.
+
+Anywhere else a bootloader is not enough. It only says "an AVR lives here", not
+whose project it runs, and the last thing this driver should do is overwrite
+somebody's other Arduino.
 
 **What cannot be updated this way:** a board whose bootloader was erased (needs
 an ISP programmer), one with auto-reset disabled - cutting RESET-EN is a common
@@ -725,16 +748,39 @@ Es sortiert hinter *Speed*, weil die Karte ihre Elemente nach der Beschriftung
 ordnet - deshalb sitzt es abseits der Lüfterbedienelemente. Benennst du es um,
 lässt der Treiber die Beschriftung in Ruhe.
 
-**Geflasht wird nur auf Knopfdruck.** Nicht bei der Installation, nicht bei
-einer Versionsabweichung. Die einzige Ausnahme ist die Reparatur: Hat der Port,
-der sich zuletzt als unserer gemeldet hat, jetzt einen Bootloader, aber keinen
-funktionierenden Sketch - ein abgebrochenes Update also -, bringt der Treiber
-beim Start zu Ende, was angefangen wurde. Wessen Board das ist, steht dort außer
-Frage, und die Alternative wäre ein Lüfter, der tot bleibt, bis jemand mit einem
-Laptop hinfährt.
+**Wann der Treiber von sich aus flasht.** Nie wegen einer Versionsabweichung
+und nie, weil ein Board neu ist: Ein Update ist immer ein Knopfdruck. Drei
+Fälle programmieren ein Board ungefragt, und alle drei laufen darauf hinaus,
+dass klar ist, wessen Board es ist.
 
-Auf jedem anderen Port reicht ein Bootloader nie zum Flashen. Er sagt nur "hier
-wohnt ein AVR", nicht, wessen Projekt darauf läuft.
+*Der Port, den er schon kennt.* Hat der Port, der sich zuletzt als unserer
+gemeldet hat, jetzt einen Bootloader, aber keinen funktionierenden Sketch - ein
+abgebrochenes Update also -, bringt der Treiber beim Start zu Ende, was
+angefangen wurde. Das macht ein Ersatzboard gleich zum Steckteil: alten Arduino
+raus, nackten rein, kurz darauf läuft der Sketch. Ob das neue Board wirklich am
+selben Port landet, hängt am USB-Chip. CH340-Clones tragen meist keine
+Seriennummer, alle erscheinen also unter demselben Namen in
+`/dev/serial/by-id`, und der Tausch klappt einfach; FTDI und CP210x haben
+eindeutige Seriennummern, ein Ersatzboard heißt dort anders und der Treiber
+fasst es nicht an. Die Kehrseite des CH340-Verhaltens: zwei davon an einem GX
+lassen sich nicht auseinanderhalten.
+
+*Das erste Board einer frischen Installation.* Hier meldet sich nichts, also
+erscheint kein Dienst, also gibt es keinen Knopf zum Drücken - der Sketch müsste
+vom Laptop kommen. Ist deshalb überhaupt kein Port gemerkt und antwortet
+nirgends ein MaxxFan, flasht der Treiber den einen AVR-Bootloader, den er unter
+den Kandidatenports findet. Genau einen: Bei zwei AVRs lässt er die Finger davon.
+Das wird einmal pro Installation versucht und in
+`/Settings/Devices/maxxfan/AdoptAttempted` vermerkt, damit ein Board, das sich
+nicht flashen lässt, nicht bei jedem Neustart des Dienstes zurückgesetzt wird.
+Diese Einstellung zurücksetzen, und er versucht es erneut.
+
+*Ein Port, den du selbst nennst.* `dbus-maxxfan.py /dev/serial/by-id/usb-...`
+flasht ein nacktes Board an diesem Port - ihn zu nennen sagt, wem er gehört.
+
+Überall sonst reicht ein Bootloader nicht. Er sagt nur "hier wohnt ein AVR",
+nicht, wessen Projekt darauf läuft, und das Letzte, was dieser Treiber tun
+sollte, ist den Arduino von jemand anderem zu überschreiben.
 
 **Was sich so nicht aktualisieren lässt:** ein Board mit gelöschtem Bootloader
 (braucht einen ISP-Programmer), eines mit abgeschaltetem Auto-Reset - die

@@ -34,7 +34,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.3"
+VERSION = "1.4"
 SERVICE_CLASS = "switch"
 FALLBACK_INSTANCE = 41
 BAUD = 115200
@@ -237,6 +237,9 @@ def open_settings(bus, name):
         "instance": [prefix + "ClassAndVrmInstance",
                      "%s:%d" % (SERVICE_CLASS, FALLBACK_INSTANCE), 0, 0],
         "port":      [prefix + "Port", "", 0, 0],
+        # Set once an adoption has been attempted, so a board that cannot be
+        # flashed is not reset every ten seconds for the rest of its life.
+        "adopt":     [prefix + "AdoptAttempted", 0, 0, 1],
         "name":      [prefix + "CustomName", "MaxxFan", 0, 0],
         "fan":       [prefix + "Fan", 0, 0, 1],
         "speed":     [prefix + "Speed", 50, 10, 100],
@@ -692,8 +695,11 @@ def probe(port):
 def open_transmitter(argv, settings):
     """Find the transmitter, touching as few foreign ports as possible."""
     if len(argv) > 1:
-        tx = probe(argv[1])
-        return (tx, argv[1]) if tx else (None, None)
+        # Naming a port on the command line is as clear a statement of whose
+        # board it is as the remembered port, so a bare one gets flashed.
+        port = argv[1]
+        tx = probe(port) or repair(port)
+        return (tx, port) if tx else (None, None)
 
     known = ""
     if settings is not None:
@@ -718,43 +724,123 @@ def open_transmitter(argv, settings):
             tx = repair(port)          # our own port, sketch gone
             if tx is not None:
                 return tx, port
+    if not known:
+        tx, port = adopt(order, settings)
+        if tx is not None:
+            return tx, port
     log("none of the %d candidate ports answered the identification" % len(order))
     return None, None
 
 
-def repair(port):
-    """Re-flash the port that used to be ours but has no working sketch.
+def bootloader_on(port):
+    """Chip name if an AVR bootloader answers on port, else None.
 
-    This is the one case where flashing happens without being asked: the port
-    is the one that identified as MAXXFAN before, so there is no doubt whose
-    board it is, and an interrupted update is the likely reason it went quiet.
-    Anything else - an unknown port, an ambiguous one - is left alone, because
-    a bootloader only says "an AVR lives here", not whose project it runs.
+    serial-starter has to let go for the attempt, exactly as in probe(). A
+    port that turns out to hold no AVR is handed straight back; one that does
+    is left stopped, because the caller is about to program it.
     """
-    if hex_version() is None:
-        return None
     try:
         import flash
     except ImportError as e:
-        log("cannot flash: %s" % e)
+        log("cannot look for a bootloader: %s" % e)
         return None
+    tty = tty_of(port)
+    serial_starter("stop-tty.sh", tty)
+    time.sleep(0.5)
     chip = flash.identify(port)
     if chip is None:
-        return None
-    log("%s has a %s bootloader but no working sketch - re-flashing"
-        % (os.path.basename(port), chip))
+        serial_starter("start-tty.sh", tty)
+    return chip
+
+
+def burn(port, why):
+    """Write the shipped sketch to port and open it. None if that fails.
+
+    The port must already be ours to use: stopped, and known to hold an AVR.
+    """
+    import flash
     try:
         flash.flash(port, HEX_FILE, log=log)
     except Exception as e:
-        log("re-flashing failed: %s" % e)
+        log("%s failed: %s" % (why, e))
         return None
     try:
         tx = Transmitter(port)
     except Exception as e:
-        log("still no answer after re-flashing: %s" % e)
+        log("still no answer after flashing: %s" % e)
         return None
-    log("recovered, transmitter answers %r" % tx.firmware)
+    log("%s done, transmitter answers %r" % (why, tx.firmware))
     return tx
+
+
+def repair(port):
+    """Re-flash a port that is ours but has no working sketch.
+
+    The port either identified as MAXXFAN before or was named on the command
+    line, so there is no doubt whose board it is, and an interrupted update is
+    the likely reason it went quiet. Any other port is left alone, because a
+    bootloader only says "an AVR lives here", not whose project it runs.
+    """
+    if hex_version() is None:
+        return None
+    chip = bootloader_on(port)
+    if chip is None:
+        return None
+    log("%s has a %s bootloader but no working sketch - re-flashing"
+        % (os.path.basename(port), chip))
+    tx = burn(port, "re-flashing")
+    if tx is None:
+        serial_starter("start-tty.sh", tty_of(port))
+    return tx
+
+
+def adopt(ports, settings):
+    """Flash the one AVR on the bus when this install has never had a sender.
+
+    The first board on a GX device is a chicken and egg: nothing identifies
+    itself, so no service appears, so there is no button to press, so the
+    sketch has to arrive from a laptop. This is the way out, and it is
+    deliberately narrow - no port remembered, no MaxxFan answering anywhere,
+    and exactly one AVR bootloader among the candidates. Two AVRs and it keeps
+    its hands off rather than overwrite somebody's other project.
+
+    At most one attempt per installation. If it fails, a board that cannot be
+    flashed would otherwise be reset every time daemontools restarts us.
+    """
+    if hex_version() is None or settings is None:
+        return None, None
+    try:
+        if int(settings["adopt"]):
+            return None, None
+    except Exception as e:
+        log("adoption flag not readable (%s) - not adopting" % e)
+        return None, None
+    found = []
+    for port in ports:
+        chip = bootloader_on(port)
+        if chip:
+            found.append((port, chip))
+    if len(found) != 1:
+        for port, _chip in found:      # bootloader_on left these stopped
+            serial_starter("start-tty.sh", tty_of(port))
+        if found:
+            log("%d AVR bootloaders and no MaxxFan among them - not guessing "
+                "which one is the transmitter" % len(found))
+        return None, None
+    port, chip = found[0]
+    log("no transmitter known yet and one %s bootloader on %s - adopting it"
+        % (chip, os.path.basename(port)))
+    try:
+        settings["adopt"] = 1          # before flashing: one attempt, not many
+    except Exception as e:
+        log("could not record the attempt (%s) - not adopting" % e)
+        serial_starter("start-tty.sh", tty_of(port))
+        return None, None
+    tx = burn(port, "adopting")
+    if tx is None:
+        serial_starter("start-tty.sh", tty_of(port))
+        return None, None
+    return tx, port
 
 
 def main():
