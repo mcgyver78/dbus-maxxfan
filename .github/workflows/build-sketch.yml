@@ -1,66 +1,50 @@
 name: sketch
 
-# The driver flashes arduino/maxxfan_tx.hex onto the Arduino, so that file has
-# to match the sketch in the repository. This rebuilds it and complains if the
-# committed one is stale - a mismatch would mean the card offers an "update"
-# that installs an older sketch than the one people are reading.
+# Two things matter here. The firmware shipped in the package must match the
+# sketch in the repository - a stale arduino/maxxfan_tx.hex would make the card
+# offer an "update" that installs an older sketch. And the sketch has to build
+# and pass its own tests.
+#
+# The firmware check compares the version string that the sketch writes into
+# flash, not the bytes of a fresh build: two toolchain versions produce
+# different binaries from identical source, and that says nothing about whether
+# the firmware is current.
 
 on:
   push:
     paths:
       - 'arduino/**'
+      - 'tools/**'
       - '.github/workflows/build-sketch.yml'
   pull_request:
-    paths:
-      - 'arduino/**'
   workflow_dispatch:
 
 jobs:
-  build:
+  firmware:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install arduino-cli
+      - name: The shipped firmware matches the sketch
+        run: python3 tools/check-hex.py
+
+      - name: Build the sketch
         run: |
           mkdir -p "$HOME/bin"
           curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
             | BINDIR="$HOME/bin" sh
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-
-      - name: Install the AVR core
-        run: |
+          export PATH="$HOME/bin:$PATH"
           arduino-cli core update-index
           arduino-cli core install arduino:avr
-
-      - name: Build
-        run: |
-          cp arduino/maxxfan_tx.hex /tmp/committed.hex || true
-          cp arduino/maxxfan_tx.hex.ver /tmp/committed.ver || true
-          tools/build-hex.sh
-
-      - name: Compare with what is committed
-        run: |
-          fail=0
-          if ! cmp -s /tmp/committed.ver arduino/maxxfan_tx.hex.ver; then
-            echo "::error::maxxfan_tx.hex.ver is stale - SKETCH_VERSION says $(cat arduino/maxxfan_tx.hex.ver)"
-            fail=1
-          fi
-          if ! cmp -s /tmp/committed.hex arduino/maxxfan_tx.hex; then
-            echo "::error::maxxfan_tx.hex does not match the sketch. Run tools/build-hex.sh and commit the result."
-            echo "(a different arduino-cli or core version can also cause this)"
-            fail=1
-          fi
-          exit $fail
+          arduino-cli compile -b arduino:avr:nano:cpu=atmega328 \
+            --output-dir /tmp/build arduino/maxxfan_tx
+          ls -l /tmp/build/maxxfan_tx.ino.hex
 
       - name: Upload the freshly built firmware
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: maxxfan_tx-hex
-          path: |
-            arduino/maxxfan_tx.hex
-            arduino/maxxfan_tx.hex.ver
+          path: /tmp/build/maxxfan_tx.ino.hex
 
       - name: Sketch tests
         run: |
@@ -69,3 +53,17 @@ jobs:
               -x c++ ../../arduino/maxxfan_tx/maxxfan_tx.ino lines_main.cpp \
               -o /tmp/test-sketch -Wall -Wextra
           /tmp/test-sketch
+
+  driver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install pyserial
+      - name: Driver tests
+        run: python3 tools/test-driver-logic.py
+      - name: Programmer tests
+        run: python3 tools/test-flash.py
+      - name: Encoder against the recorded remote signals
+        run: |
+          curl -fsSLO https://raw.githubusercontent.com/skypeachblue/maxxfan-reversing/main/Maxxfan_collection.ir
+          python3 tools/verify-encoder.py Maxxfan_collection.ir | tail -1

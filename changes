@@ -21,10 +21,13 @@ v1.3
   itself, so a failed write leaves a broken sketch and a working bootloader,
   which is what that repair path is for.
 
-  arduino/maxxfan_tx.hex ships with the package. tools/build-hex.sh builds it
-  and its version file from SKETCH_VERSION in the sketch, and a GitHub workflow
-  rebuilds both on every change and fails if what is committed is stale - a
-  stale .hex would make the card offer an update that installs an older sketch.
+  arduino/maxxfan_tx.hex ships with the package. tools/build-hex.sh rebuilds it
+  and its version file from SKETCH_VERSION, and tools/check-hex.py - run by a
+  GitHub workflow on every change - verifies that they agree. It reads the
+  version string out of the committed .hex, where the sketch's identify reply
+  puts it, rather than comparing against a fresh build: two toolchain versions
+  produce different binaries from identical source, so a byte comparison fails
+  for reasons that say nothing about whether the firmware is current.
 
   Also new: tools/test-flash.py drives the programmer against a simulated
   STK500v1 bootloader on a pty (16 checks: hex parsing, checksums, page

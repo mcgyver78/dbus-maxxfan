@@ -269,9 +269,18 @@ sketch and a working bootloader - exactly the state the repair path above is
 for.
 
 **Keeping the firmware in step.** `arduino/maxxfan_tx.hex` is what gets flashed,
-so it has to match the sketch. [`tools/build-hex.sh`](tools/build-hex.sh) builds
-it and the version file from `SKETCH_VERSION` in the sketch, and a GitHub
-workflow rebuilds both on every change and fails if what is committed is stale.
+so it has to match the sketch; a stale one would make the card offer an update
+that installs something older. [`tools/build-hex.sh`](tools/build-hex.sh)
+rebuilds it and the version file from `SKETCH_VERSION`, and
+[`tools/check-hex.py`](tools/check-hex.py) — which a GitHub workflow runs on
+every change — verifies that they agree.
+
+The check reads the version string **out of the committed `.hex`**, where the
+sketch's identify reply puts it, rather than comparing against a fresh build.
+Two toolchain versions produce different binaries from identical source, so a
+byte comparison fails for reasons that have nothing to do with the firmware
+being current. Bump `SKETCH_VERSION` whenever you change the sketch, and the
+check has something to catch.
 
 ### Why `switch` and not a fan service
 
@@ -742,10 +751,19 @@ Fall ist ein kaputter Sketch bei intaktem Bootloader - genau der Zustand, für
 den der Reparaturweg oben da ist.
 
 **Firmware und Sketch zusammenhalten.** Geflasht wird `arduino/maxxfan_tx.hex`,
-die Datei muss also zum Sketch passen. [`tools/build-hex.sh`](tools/build-hex.sh)
-baut sie zusammen mit der Versionsdatei aus `SKETCH_VERSION` im Sketch, und ein
-GitHub-Workflow baut beides bei jeder Änderung neu und schlägt fehl, wenn das
-Committete veraltet ist.
+die Datei muss also zum Sketch passen — eine veraltete würde die Karte ein
+Update anbieten lassen, das etwas Älteres installiert.
+[`tools/build-hex.sh`](tools/build-hex.sh) baut sie samt Versionsdatei aus
+`SKETCH_VERSION` neu, und [`tools/check-hex.py`](tools/check-hex.py) — von einem
+GitHub-Workflow bei jeder Änderung ausgeführt — prüft, dass beide
+zusammenpassen.
+
+Die Prüfung liest die Versionszeichenkette **aus der committeten `.hex`**, wo
+die Identifikationsantwort des Sketches sie ablegt, statt gegen einen frischen
+Build zu vergleichen. Zwei Toolchain-Versionen erzeugen aus identischem
+Quelltext verschiedene Binärdateien, ein Byte-Vergleich schlägt also aus Gründen
+fehl, die mit der Aktualität der Firmware nichts zu tun haben. Beim Ändern des
+Sketches `SKETCH_VERSION` hochzählen, dann hat die Prüfung etwas zu greifen.
 
 ### Warum `switch` und kein Lüfter-Dienst
 

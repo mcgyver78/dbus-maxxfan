@@ -23,3 +23,6 @@ test -s arduino/maxxfan_tx.hex.ver || { echo "no SKETCH_VERSION in the sketch"; 
 
 rm -rf "$OUT"
 echo "built $(wc -c < arduino/maxxfan_tx.hex) bytes, version $(cat arduino/maxxfan_tx.hex.ver)"
+
+# and prove the two agree
+python3 "$(dirname "$0")/check-hex.py"
