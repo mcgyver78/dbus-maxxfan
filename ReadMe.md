@@ -77,10 +77,14 @@ Two consequences worth knowing:
 - **The driver does not transmit at startup.** Re-sending the stored state on
   every reboot of the GX would start a fan that somebody deliberately switched
   off by hand. The state is published, not sent.
-- **A periodic refresh runs every 15 minutes** (`REFRESH_S` in the driver) and
-  re-sends the current state, so a fan operated by hand comes back under GX
-  control on its own. Set `REFRESH_S = 0` to switch that off and use the
-  *Resend* button instead.
+- **Nothing is transmitted unless somebody asks for it.** There is a periodic
+  re-send in the driver (`REFRESH_S`, in seconds) and it ships switched off. It
+  was meant to bring a fan operated by hand back under GX control, but with no
+  way back over infrared the driver can never tell whether the fan agrees with
+  it, so re-asserting is a blind write - and a blind write eventually undoes
+  something a person just did. Switching it on means accepting that the fan can
+  start by itself a quarter of an hour after somebody switched it off at the
+  fan. *Resend* does the same thing at a moment when it was asked for.
 
 Because the protocol has no "speed only" message, every change transmits all
 eight fields. Changes are collected for 600 ms first, so dragging the speed
@@ -507,7 +511,7 @@ itself works over a couple of metres, so aim the LED at the fan's own receiver
 window rather than at the ceiling.
 
 **The GX shows a state the fan is not in.** Somebody used the hand held remote.
-Press *Resend*, or wait for the periodic refresh.
+Press *Resend*.
 
 **The speed control does nothing, and the fan beeps at every step.** The control
 was configured as a *stepped switch*. That type sends the number of the position
@@ -637,10 +641,15 @@ Zwei Punkte, die daraus folgen:
   Neustart des GX erneut zu funken würde einen Lüfter starten, den jemand
   bewusst von Hand ausgeschaltet hat. Der Zustand wird veröffentlicht, nicht
   gesendet.
-- **Alle 15 Minuten läuft eine Auffrischung** (`REFRESH_S` im Treiber) und sendet
-  den aktuellen Zustand erneut, damit ein von Hand bedienter Lüfter von selbst
-  wieder unter GX-Kontrolle kommt. `REFRESH_S = 0` schaltet das ab; dann bleibt
-  der *Resend*-Taster.
+- **Gesendet wird nur, wenn jemand danach fragt.** Es gibt eine periodische
+  Wiederholung im Treiber (`REFRESH_S`, in Sekunden), und sie ist ab Werk aus.
+  Gedacht war sie, um einen von Hand bedienten Lüfter wieder unter GX-Kontrolle
+  zu bringen — aber ohne Rückweg über Infrarot kann der Treiber nie wissen, ob
+  der Lüfter seiner Meinung ist. Die Wiederholung ist also ein Blindschuss, und
+  ein Blindschuss macht irgendwann rückgängig, was gerade jemand von Hand
+  eingestellt hat. Wer sie einschaltet, nimmt in Kauf, dass der Lüfter eine
+  Viertelstunde nach dem Ausschalten am Gerät von selbst wieder anläuft.
+  *Resend* macht dasselbe, aber in dem Moment, in dem es gewollt ist.
 
 Weil das Protokoll kein „nur Drehzahl"-Kommando kennt, überträgt jede Änderung
 alle acht Felder. Änderungen werden deshalb erst 600 ms gesammelt — am
@@ -1086,7 +1095,7 @@ paar Meter, also die LED auf das Empfängerfenster des Lüfters richten und nich
 irgendwohin an die Decke.
 
 **Das GX zeigt einen Zustand, in dem der Lüfter nicht ist.** Da war die
-Handfernbedienung am Werk. *Resend* drücken oder die Auffrischung abwarten.
+Handfernbedienung am Werk. *Resend* drücken.
 
 **Der Drehzahlregler bewirkt nichts, der Lüfter piept bei jeder Stufe.** Dann
 steht das Element auf *Stufenschalter*. Dieser Typ überträgt die Nummer der

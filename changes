@@ -1,3 +1,22 @@
+v1.6
+  Fixes a fan that started on its own. The driver re-sent its stored state
+  every 15 minutes, so a fan switched off at the fan - or by its own hand
+  remote - came back on at the next refresh, up to a quarter of an hour later.
+  Unplugging the Arduino stopped it, which is what makes it look like a
+  hardware fault.
+
+  That refresh now ships switched off, and off is the right default. Infrared
+  has no way back, so the driver can never tell whether the fan agrees with it;
+  re-asserting on a timer is a blind write, and a blind write eventually undoes
+  something a person just did by hand. The Resend button does the same thing at
+  a moment when somebody is asking for it. REFRESH_S is still there for anyone
+  who wants the old behaviour and knows what it costs.
+
+  Nothing else transmits by itself: startup has always been deliberately
+  silent, and the sketch only sends on a command. Three new checks hold that
+  line - the shipped default, a driver left alone putting nothing on the air,
+  and no timer armed at startup.
+
 v1.5
   A GX device with nothing on it can now be set up from a USB stick, without a
   console, an SSH session or anything typed. Venus OS unpacks archives it finds

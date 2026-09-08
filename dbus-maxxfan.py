@@ -34,7 +34,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.4"
+VERSION = "1.6"
 SERVICE_CLASS = "switch"
 FALLBACK_INSTANCE = 41
 BAUD = 115200
@@ -55,9 +55,14 @@ MAX_RETRIES = 3
 # the old file descriptor dead while the by-id path is still there, and that
 # state is not recoverable from inside the process.
 MAX_FAILURES = 4
-# Re-send the current state every so often, in case the fan was operated with
-# the hand held remote in the meantime. 0 disables it.
-REFRESH_S = 900
+# Re-send the current state every so often. Off, and off is the right default:
+# infrared has no way back, so the driver can never tell whether the fan agrees
+# with it. A periodic re-assert is therefore a blind write, and a blind write
+# eventually undoes something a person just did by hand - the fan starting on
+# its own a quarter of an hour after it was switched off at the fan. The
+# *Resend* button covers the case this was meant for, at a moment when somebody
+# is actually asking for it. Seconds; 0 disables.
+REFRESH_S = 0
 # Wait before exiting when no transmitter was found. Long on purpose: every
 # restart re-runs the port search, and probing a port belonging to another
 # driver disturbs it briefly.

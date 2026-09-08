@@ -105,6 +105,7 @@ spec = importlib.util.spec_from_file_location(
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 mod.GLib = FakeGLib
+SHIPPED_REFRESH_S = mod.REFRESH_S
 mod.REFRESH_S = 0        # fire only the timers a test arms itself
 
 
@@ -264,6 +265,25 @@ check("an old sketch without a version is named honestly",
 check("  and the label offers the update",
       "update to" in drv.svc["/SwitchableOutput/update/Settings/CustomName"]
       if mod.hex_version() else True, True)
+
+# ---- 7c. nothing goes on the air unasked --------------------------------
+# The fan starting by itself a quarter of an hour after somebody switched it
+# off at the fan was this timer re-asserting a state nobody could confirm.
+check("the periodic re-send ships switched off", SHIPPED_REFRESH_S, 0)
+
+drv, tx, _ = build()
+run_timers()
+check("  so a driver that is left alone transmits nothing", len(tx.sent), 0)
+check("  and no timer is armed at startup either",
+      [t for t in timers if t[2]], [])
+
+# With it switched on it is a blind write, which is exactly why it is not.
+mod.REFRESH_S = 900
+drv, tx, _ = build(fan=1)
+mod.REFRESH_S = 0
+drv._refresh()
+check("switched on, it re-asserts the stored state unasked",
+      tx.sent[-1]["on"], 1)
 
 # ---- 8. a port that does not answer is handed back to serial-starter ----
 calls = []
