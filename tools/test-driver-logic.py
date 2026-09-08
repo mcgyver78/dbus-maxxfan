@@ -301,6 +301,34 @@ check("a foreign port is probed and released", mod.probe("/dev/null"), None)
 check("  stop-tty first, then start-tty",
       [c[0] for c in calls], ["stop-tty.sh", "start-tty.sh"])
 
+# A port another driver has already claimed is left alone entirely. On a GX an
+# Autoterm heater sits on an FTDI and a Buck-Boost on a CP210x - both match the
+# candidate patterns here, and both remove their tty from serial-starter when
+# they claim it. Probing such a port disturbs the other driver; handing it back
+# afterwards would flood its port with VE.Direct probes for good.
+calls[:] = []
+echt_isdir, echt_exists, echt_tty_of = mod.os.path.isdir, mod.os.path.exists, mod.tty_of
+mod.os.path.isdir = lambda p: p == mod.SERIAL_STARTER_DIR
+verwaltet = {mod.os.path.join(mod.SERIAL_STARTER_DIR, "ttyUSB9")}
+mod.os.path.exists = lambda p: p in verwaltet
+mod.tty_of = lambda port: "ttyUSB0"
+check("a port claimed by another driver is not probed", mod.probe("/dev/null"), None)
+check("  and serial-starter is not touched for it", calls, [])
+
+mod.tty_of = lambda port: "ttyUSB9"
+check("a port still under serial-starter is probed as before",
+      mod.probe("/dev/null"), None)
+check("  stop-tty first, then start-tty",
+      [c[0] for c in calls], ["stop-tty.sh", "start-tty.sh"])
+
+# Without the directory there is nothing to conclude, so nothing changes.
+calls[:] = []
+mod.os.path.isdir = lambda p: False
+mod.tty_of = lambda port: "ttyUSB0"
+check("no serial-starter directory: probed as before", mod.probe("/dev/null"), None)
+check("  and released again", [c[0] for c in calls], ["stop-tty.sh", "start-tty.sh"])
+mod.os.path.isdir, mod.os.path.exists, mod.tty_of = echt_isdir, echt_exists, echt_tty_of
+
 # ---- 9. adopting the first board ----------------------------------------
 # Nothing identifies itself on a fresh install, so there is no card and no
 # button: the only board on the bus is flashed unasked. Everything here runs

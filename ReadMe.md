@@ -468,6 +468,17 @@ back. A foreign device loses its Venus driver for about a second instead of
 until the next reboot. The port that did answer is remembered in the settings,
 so from the second start onwards no other port is touched at all.
 
+A port another driver has already claimed is skipped entirely — not probed,
+not stopped, not handed back. serial-starter keeps a node under
+`/dev/serial-starter` for every tty it still manages, and a driver that claims
+a port removes it, so a candidate without that node is not free but taken. This
+matters on a real GX: an Autoterm heater sits on an FTDI and a Victron
+Buck-Boost on a CP210x, and both match the candidate patterns above. Handing
+such a port back would be worse than the probe itself — the other driver keeps
+running while its port fills up with VE.Direct and MK2 probes again, and it has
+no way of noticing. Measured on a Cerbo: a heater driver sharing its port that
+way answered 2 of 30 queries instead of 29 of 29.
+
 For the same reason the driver opens the port once and keeps it open; re-opening
 it per command would reboot the transmitter every time.
 
@@ -1049,6 +1060,18 @@ sofort zurück. Ein fremdes Gerät verliert seinen Venus-Treiber damit für etwa
 eine Sekunde statt bis zum nächsten Neustart. Der Port, der geantwortet hat,
 steht danach in den Settings — ab dem zweiten Start wird kein anderer mehr
 angefasst.
+
+Einen Port, den ein anderer Treiber bereits für sich beansprucht hat, fasst er
+gar nicht erst an — weder abtasten noch freigeben noch zurückgeben. Der
+serial-starter führt unter `/dev/serial-starter` für jedes tty, das er noch
+verwaltet, einen Eintrag; wer einen Port übernimmt, entfernt ihn. Ein Kandidat
+ohne diesen Eintrag ist also nicht frei, sondern belegt. Das ist auf einem
+echten GX kein Randfall: eine Autoterm-Heizung hängt an einem FTDI, ein Victron
+Buck-Boost an einem CP210x, und beide passen auf die Muster oben. Den Port
+zurückzugeben wäre schlimmer als das Abtasten selbst — der andere Treiber läuft
+weiter, während sich seine Leitung wieder mit VE.Direct- und MK2-Anfragen
+füllt, und er kann es nicht bemerken. Am Cerbo gemessen: ein Heizungstreiber,
+der sich seinen Port so teilt, beantwortet 2 von 30 Abfragen statt 29 von 29.
 
 Aus demselben Grund öffnet der Treiber den Port einmal und hält ihn offen — ihn
 pro Kommando neu zu öffnen würde den Sender jedes Mal neu starten.

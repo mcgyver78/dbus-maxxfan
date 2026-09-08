@@ -34,11 +34,18 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.6"
+VERSION = "1.7"
 SERVICE_CLASS = "switch"
 FALLBACK_INSTANCE = 41
 BAUD = 115200
 SERIAL_STARTER = "/opt/victronenergy/serial-starter"
+# serial-starter keeps a node here for every tty it still manages. A driver
+# that has claimed a port removes it (stop-tty.sh does exactly that), so a
+# missing node means: this port already belongs to somebody. Probing it would
+# disturb that driver, and handing it back afterwards would undo its claim -
+# on a GX with an Autoterm heater on an FTDI or a Buck-Boost on a CP210x,
+# both of which look exactly like candidates here.
+SERIAL_STARTER_DIR = "/dev/serial-starter"
 # The Arduino resets when the port is opened, then runs its bootloader.
 RESET_WAIT = 2.0
 # A packet takes about 150 ms on the air, so give the sketch room to answer.
@@ -678,6 +685,23 @@ class Driver(object):
         sys.exit(1)                    # daemontools starts us again
 
 
+def owned_by_another_driver(tty):
+    """True if some other driver has already taken this tty for itself.
+
+    serial-starter keeps a node under /dev/serial-starter for every tty it
+    manages, and a driver claiming a port removes it. So a candidate without
+    that node is not free - it is taken, by a driver that will keep talking
+    on it. Skipping it costs nothing: an Arduino that has just been plugged in
+    is always under serial-starter, never claimed by somebody else.
+
+    Where the directory does not exist at all (not a GX, or an older Venus),
+    there is nothing to conclude and the port is probed as before.
+    """
+    if not os.path.isdir(SERIAL_STARTER_DIR):
+        return False
+    return not os.path.exists(os.path.join(SERIAL_STARTER_DIR, tty))
+
+
 def probe(port):
     """Ask one port what is on it, leaving nothing behind if it is not ours.
 
@@ -685,8 +709,16 @@ def probe(port):
     and opening it resets the board anyway. A port that does not identify is
     handed straight back, so a foreign device loses its driver for a second
     rather than until the next reboot.
+
+    A port another driver has already claimed is not touched at all. Handing
+    such a port back to serial-starter would be worse than the probe itself:
+    the other driver keeps running, but its port fills up with VE.Direct and
+    MK2 probes again, and it has no way of noticing.
     """
     tty = tty_of(port)
+    if owned_by_another_driver(tty):
+        log("%s belongs to another driver - not probed" % tty)
+        return None
     serial_starter("stop-tty.sh", tty)
     time.sleep(0.5)
     try:
@@ -750,6 +782,9 @@ def bootloader_on(port):
         log("cannot look for a bootloader: %s" % e)
         return None
     tty = tty_of(port)
+    if owned_by_another_driver(tty):
+        log("%s belongs to another driver - no bootloader search" % tty)
+        return None
     serial_starter("stop-tty.sh", tty)
     time.sleep(0.5)
     chip = flash.identify(port)
