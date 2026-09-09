@@ -1,0 +1,17 @@
+v1.8
+  Fixes a regression from v1.7 that could make the card disappear from the
+  system entirely. v1.7 skipped a candidate port when serial-starter had no
+  node for it, reasoning that the node is only gone once a driver has claimed
+  the port. That is true - but THIS driver removes the node as well, the
+  moment it claims a port, and the node does not return until the next reboot.
+  So after any restart of the driver process (a crash, MAX_FAILURES, a
+  package update) it found its own port without a node, decided it belonged
+  to somebody else, never probed it again, and never registered on D-Bus. The
+  card was gone, and no amount of restarting brought it back - only a reboot.
+  A port without a node is now only left alone when another process really
+  holds it open, which is read from /proc instead of guessed at. That is a
+  fact rather than an inference, and it also covers ports serial-starter
+  never managed in the first place.
+  No reboot is needed to recover: the fix takes effect the moment the driver
+  restarts.
+

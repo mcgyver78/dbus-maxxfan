@@ -312,9 +312,31 @@ mod.os.path.isdir = lambda p: p == mod.SERIAL_STARTER_DIR
 verwaltet = {mod.os.path.join(mod.SERIAL_STARTER_DIR, "ttyUSB9")}
 mod.os.path.exists = lambda p: p in verwaltet
 mod.tty_of = lambda port: "ttyUSB0"
+echt_offen = mod.port_open_elsewhere
+mod.port_open_elsewhere = lambda tty: True
 check("a port claimed by another driver is not probed", mod.probe("/dev/null"), None)
 check("  and serial-starter is not touched for it", calls, [])
 
+# Learned at a customer GX: the driver removes that node itself when it takes
+# a port, and it does not come back until the next reboot. Version 1.7 read
+# "no node" as "foreign", so after any restart of the service the driver
+# refused its own port, never registered, and the card was gone from the
+# system. A port without a node that nobody holds open is ours to probe.
+calls[:] = []
+mod.port_open_elsewhere = lambda tty: False
+check("an unmanaged port nobody holds open is probed", mod.probe("/dev/null"), None)
+check("  stop-tty first, then start-tty",
+      [c[0] for c in calls], ["stop-tty.sh", "start-tty.sh"])
+calls[:] = []
+mod.port_open_elsewhere = echt_offen
+
+# The evidence itself: only another process counts, not this one.
+import os as _os
+check("a port this process holds open is not foreign",
+      mod.port_open_elsewhere("does-not-exist-%d" % _os.getpid()), False)
+mod.port_open_elsewhere = lambda tty: True
+
+mod.port_open_elsewhere = echt_offen
 mod.tty_of = lambda port: "ttyUSB9"
 check("a port still under serial-starter is probed as before",
       mod.probe("/dev/null"), None)

@@ -685,21 +685,62 @@ class Driver(object):
         sys.exit(1)                    # daemontools starts us again
 
 
+def port_open_elsewhere(tty):
+    """True if a process other than this one holds /dev/<tty> open.
+
+    Read from /proc, which is the only place on Venus that knows. Anything
+    unreadable is skipped rather than guessed at: a port is only declared
+    busy on evidence, never on the absence of it.
+    """
+    ziel = os.path.realpath(os.path.join("/dev", tty))
+    selbst = str(os.getpid())
+    try:
+        pids = os.listdir("/proc")
+    except OSError:
+        return False
+    for pid in pids:
+        if not pid.isdigit() or pid == selbst:
+            continue
+        verzeichnis = "/proc/%s/fd" % pid
+        try:
+            deskriptoren = os.listdir(verzeichnis)
+        except OSError:
+            continue                      # weg, oder nicht unser Prozess
+        for fd in deskriptoren:
+            try:
+                if os.path.realpath(os.path.join(verzeichnis, fd)) == ziel:
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def owned_by_another_driver(tty):
     """True if some other driver has already taken this tty for itself.
 
-    serial-starter keeps a node under /dev/serial-starter for every tty it
-    manages, and a driver claiming a port removes it. So a candidate without
-    that node is not free - it is taken, by a driver that will keep talking
-    on it. Skipping it costs nothing: an Arduino that has just been plugged in
-    is always under serial-starter, never claimed by somebody else.
+    Two steps, and the second one is the whole point. serial-starter keeps a
+    node under /dev/serial-starter for every tty it manages; while that node
+    is there the port is serial-starter's and ours to take.
+
+    Without the node the port is claimed - but not necessarily by somebody
+    else. THIS driver removes the node too, the moment it claims a port, and
+    the node does not come back until the next reboot. Version 1.7 concluded
+    "no node, therefore foreign" and locked the driver out of its own port
+    after every restart of the service: it never probed again, never
+    registered, and the card vanished from the system. The comment even said
+    the case could not occur.
+
+    So a port without a node is only left alone when another process really
+    holds it open. That is a fact, readable in /proc, instead of a guess.
 
     Where the directory does not exist at all (not a GX, or an older Venus),
     there is nothing to conclude and the port is probed as before.
     """
     if not os.path.isdir(SERIAL_STARTER_DIR):
         return False
-    return not os.path.exists(os.path.join(SERIAL_STARTER_DIR, tty))
+    if os.path.exists(os.path.join(SERIAL_STARTER_DIR, tty)):
+        return False                      # serial-starter has it, ours to take
+    return port_open_elsewhere(tty)
 
 
 def probe(port):
@@ -710,10 +751,10 @@ def probe(port):
     handed straight back, so a foreign device loses its driver for a second
     rather than until the next reboot.
 
-    A port another driver has already claimed is not touched at all. Handing
-    such a port back to serial-starter would be worse than the probe itself:
-    the other driver keeps running, but its port fills up with VE.Direct and
-    MK2 probes again, and it has no way of noticing.
+    A port another driver has already claimed - and is holding open - is not
+    touched at all. Handing such a port back to serial-starter would be worse
+    than the probe itself: the other driver keeps running, but its port fills
+    up with VE.Direct and MK2 probes again, and it has no way of noticing.
     """
     tty = tty_of(port)
     if owned_by_another_driver(tty):
