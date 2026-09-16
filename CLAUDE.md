@@ -166,11 +166,17 @@ cd tools/test-sketch && g++ -std=c++17 -D__AVR_ATmega328P__ -I. \
     -include Arduino.h -x c++ ../../arduino/maxxfan_tx/maxxfan_tx.ino \
     lines_main.cpp -o /tmp/t && /tmp/t                  # sketch line handling
 python3 tools/check-hex.py              # shipped .hex matches SKETCH_VERSION
+python3 tools/check-version.py          # version, VERSION and both changelogs
 ```
 
 The capture file for the encoder check comes from
 `skypeachblue/maxxfan-reversing` and is downloaded by the workflow, not
 committed.
+
+`tools/test-flash.py` runs on Linux only. On macOS it hangs for good in
+`termios.tcdrain()` on the pty: there is no real UART behind it, so the drain
+never completes. The test is not broken and needs no fix — run it in CI, or
+under Linux. Everything else in the list runs on the Mac.
 
 `tools/check-hex.py` reads the version string *out of* the committed `.hex`
 rather than rebuilding and comparing bytes: two toolchain versions produce
@@ -191,9 +197,28 @@ Branch is **`latest`**, not main — SetupHelper's `gitHubInfo` says
   rebuilt with `tools/build-hex.sh`, **only when the sketch changed**.
   Driver-only releases leave the firmware alone.
 
-> Currently out of step: `version` says v1.8 while `VERSION` says 1.7, and the
-> v1.8 entry is in `ChangeLog` but not in `changes`. Worth deciding whether two
-> changelogs earn their keep before the next release.
+v1.8 shipped with two of these forgotten — `VERSION` stayed at 1.7, so the
+card reported the previous release, and the v1.8 entry went only into
+`ChangeLog` while the Package manager reads `changes`. Both were caught up
+after the fact, and `tools/check-version.py` now fails the build on any of
+these four drifting apart. Nothing connects those files to each other, so the
+check is the only thing that does.
+
+> Still open: whether two changelogs earn their keep. `ChangeLog` holds exactly
+> one entry, v1.8, which `changes` now also carries; `changes` has the full
+> history back to v1.0 and is the one SetupHelper shows. Dropping `ChangeLog`
+> would lose nothing — that is a decision, not a cleanup, so it is left alone.
+
+Two remotes, and both are meant to move together: `origin` is
+`github.com/mcgyver78/dbus-maxxfan`, which is what the Package manager fetches,
+and `gitlab` is the backup copy at
+`git@git.tigerexped.de:tigerexped_playground/dbus-maxxfan.git`. GitLab over
+**SSH only** — the HTTPS URL answers 403, because the token in the keychain has
+no `Code: Download` for this project.
+
+```bash
+git push origin latest && git push gitlab latest
+```
 
 Installing: Package manager (`dbus-maxxfan` / `mcgyver78` / `latest`), the USB
 stick built by `tools/make-usb-zip.sh` and published by a workflow, or

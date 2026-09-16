@@ -59,6 +59,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pip install pyserial
+      - name: The release number agrees with itself
+        run: python3 tools/check-version.py
       - name: Driver tests
         run: python3 tools/test-driver-logic.py
       - name: Programmer tests

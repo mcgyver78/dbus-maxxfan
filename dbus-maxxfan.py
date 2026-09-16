@@ -34,7 +34,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.7"
+VERSION = "1.8"
 SERVICE_CLASS = "switch"
 FALLBACK_INSTANCE = 41
 BAUD = 115200
