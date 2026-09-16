@@ -176,7 +176,7 @@ cd tools/test-sketch && g++ -std=c++17 -D__AVR_ATmega328P__ -I. \
     -include Arduino.h -x c++ ../../arduino/maxxfan_tx/maxxfan_tx.ino \
     lines_main.cpp -o /tmp/t && /tmp/t                  # sketch line handling
 python3 tools/check-hex.py              # shipped .hex matches SKETCH_VERSION
-python3 tools/check-version.py          # version, VERSION and both changelogs
+python3 tools/check-version.py          # version, VERSION and changes agree
 ```
 
 The capture file for the encoder check comes from
