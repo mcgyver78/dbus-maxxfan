@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Checks that everything carrying the release number says the same thing.
 
-A release touches four files that nothing connects to each other, so forgetting
-one is silent. v1.8 forgot two of them: the `version` file said v1.8 while
-VERSION in the driver still said 1.7, so the card and /Mgmt/ProcessVersion
-reported the previous release for a week, and the v1.8 entry went only into
-ChangeLog - the Package manager shows `changes`, which still ended at v1.7.
-Neither is visible from the code; both are visible from here.
+A release touches three files that nothing connects to each other, so
+forgetting one is silent. v1.8 forgot two of them: the `version` file said v1.8
+while VERSION in the driver still said 1.7, so the card and
+/Mgmt/ProcessVersion reported the previous release for a week, and the v1.8
+entry was written into a second changelog nobody reads - the Package manager
+shows `changes`, which still ended at v1.7. That second changelog is gone
+again; this check is what replaces it. Neither mistake is visible from the
+code; both are visible from here.
 
 The firmware version is deliberately not checked here. It moves only when the
 sketch changes, which a driver-only release must not force; tools/check-hex.py
@@ -23,7 +25,7 @@ REPO = os.path.dirname(HERE)
 
 VERSION_FILE = os.path.join(REPO, "version")
 DRIVER = os.path.join(REPO, "dbus-maxxfan.py")
-CHANGELOGS = ["changes", "ChangeLog"]
+CHANGES = os.path.join(REPO, "changes")
 
 
 def package_version():
@@ -44,9 +46,12 @@ def driver_version():
     return m.group(1)
 
 
-def top_entry(path):
-    """The version heading a changelog opens with, or None."""
-    with open(path) as fh:
+def changes_entry():
+    """The version heading `changes` opens with - what SetupHelper shows."""
+    if not os.path.exists(CHANGES):
+        raise SystemExit("there is no `changes` file, and that is the one the "
+                         "Package manager displays")
+    with open(CHANGES) as fh:
         for line in fh:
             line = line.strip()
             if line:
@@ -64,21 +69,17 @@ def main():
             "version says %s but VERSION in dbus-maxxfan.py says %s - the "
             "card would report the wrong release" % (want, got))
 
-    for name in CHANGELOGS:
-        path = os.path.join(REPO, name)
-        if not os.path.exists(path):
-            continue
-        head = top_entry(path)
-        if head != want:
-            problems.append(
-                "%s opens with %r, expected %s - this release has no entry "
-                "where it is read" % (name, head, want))
+    head = changes_entry()
+    if head != want:
+        problems.append(
+            "changes opens with %r, expected %s - this release has no entry "
+            "where the Package manager looks for one" % (head, want))
 
     for p in problems:
         print("error: %s" % p)
     if problems:
         return 1
-    print("release %s: driver, changes and ChangeLog all agree" % want)
+    print("release %s: version, driver and changes all agree" % want)
     return 0
 
 

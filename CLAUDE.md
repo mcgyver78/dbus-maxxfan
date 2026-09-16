@@ -191,23 +191,21 @@ Branch is **`latest`**, not main — SetupHelper's `gitHubInfo` says
 - `version` — leading `v`, e.g. `v1.8`. This is what the Package manager reads.
 - `VERSION` in `dbus-maxxfan.py` — no `v`. Published as `/Mgmt/ProcessVersion`
   and in the `Connection` row.
-- `changes` — SetupHelper shows this one.
-- `ChangeLog` — a second changelog that arrived in v1.8.
+- `changes` — the changelog, and the only one. SetupHelper shows it.
 - `SKETCH_VERSION` in the `.ino`, plus `arduino/maxxfan_tx.hex` and its `.ver`,
   rebuilt with `tools/build-hex.sh`, **only when the sketch changed**.
   Driver-only releases leave the firmware alone.
 
 v1.8 shipped with two of these forgotten — `VERSION` stayed at 1.7, so the
-card reported the previous release, and the v1.8 entry went only into
-`ChangeLog` while the Package manager reads `changes`. Both were caught up
-after the fact, and `tools/check-version.py` now fails the build on any of
-these four drifting apart. Nothing connects those files to each other, so the
-check is the only thing that does.
+card reported the previous release for a week, and the v1.8 entry went into a
+second changelog, `ChangeLog`, while the Package manager reads `changes`. Both
+were caught up afterwards, `ChangeLog` is deleted, and
+`tools/check-version.py` now fails the build when `version`, `VERSION` and
+`changes` drift apart. Nothing in the repository connects those three files to
+each other, so the check is the only thing that does.
 
-> Still open: whether two changelogs earn their keep. `ChangeLog` holds exactly
-> one entry, v1.8, which `changes` now also carries; `changes` has the full
-> history back to v1.0 and is the one SetupHelper shows. Dropping `ChangeLog`
-> would lose nothing — that is a decision, not a cleanup, so it is left alone.
+A second changelog was never the answer to a forgotten entry — it just gave the
+entry somewhere else to be forgotten. That is what the check is for.
 
 Two remotes, and both are meant to move together: `origin` is
 `github.com/mcgyver78/dbus-maxxfan`, which is what the Package manager fetches,
