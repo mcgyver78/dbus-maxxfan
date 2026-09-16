@@ -145,7 +145,20 @@ def main(path):
             continue
         ok += 1
         seen.append((name, d, period))
-    print("\n%d of %d recorded signals round-tripped cleanly\n" % (ok, ok + bad))
+    if ok != len(signals):
+        print("\n%d of %d recorded signals no longer round-trip - the encoder "
+              "and the remote disagree\n" % (len(signals) - ok, len(signals)))
+    else:
+        print("\n%d of %d recorded signals round-tripped cleanly\n"
+              % (ok, len(signals)))
+    if seen:
+        mean = sum(period for _, _, period in seen) / len(seen)
+        off = abs(mean - BIT_US) / BIT_US
+        if off > 0.01:
+            print("error: BIT_US is %d us but the recordings average %.1f us "
+                  "(%.1f %% off)\n" % (BIT_US, mean, off * 100))
+            bad += 1
+
     print("%-16s %-4s %-5s %-4s %-6s %-5s %-7s %s" %
           ("signal", "fan", "speed", "dir", "cover", "auto", "temp", "symbol"))
     for name, d, period in seen:
@@ -155,7 +168,8 @@ def main(path):
             "open" if d["cover_open"] else "closed",
             "auto" if d["auto_mode"] else "man",
             "%.1f C" % d["temp_c"], period))
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    sys.exit(main(sys.argv[1]))

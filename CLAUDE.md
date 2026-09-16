@@ -56,6 +56,16 @@ component, so trust this repository over the internet on these two points:
 - **Celsius → Fahrenheit truncates**: `int(degC * 1.8) + 32`. A rounded
   conversion is off by one on 18 of the 40 values in the −2…37 °C range.
 
+Both facts were found by reading the captures, and for a long time neither was
+actually *guarded* by the round-trip check, whatever this file used to claim.
+The round trip compares symbol counts: `encode()` multiplies by `BIT_US` and
+the comparison divides by `BIT_US` again, so the value cancels out — 800 ran
+green. And the conversion never executes there at all, because the captures
+are decoded to Fahrenheit and re-encoded from Fahrenheit. Each now has a check
+of its own: `verify-encoder.py` compares `BIT_US` against the mean period the
+recordings actually show, and `test-driver-logic.py` pins `c_to_f`, including
+the 18-of-40 claim above.
+
 38 kHz carrier, RS232-like framing per byte (1 start bit, 8 data bits LSB
 first, 2 stop bits), mark = 0 and space = 1. 16-byte packet:
 
@@ -172,6 +182,14 @@ python3 tools/check-version.py          # version, VERSION and both changelogs
 The capture file for the encoder check comes from
 `skypeachblue/maxxfan-reversing` and is downloaded by the workflow, not
 committed.
+
+`verify-encoder.py` could not fail — unchanged since v1.0, and wrong the whole
+time. It counted the signals that did not round-trip, printed the number and
+then returned `None`, so the process always exited 0. The workflow piped it
+through `tail -1` on top of that, which under `bash -e` without `pipefail`
+would have discarded the status anyway. A broken encoder was a green build
+twice over. It now returns 1 and the pipe is gone, counter-checked with a wrong
+preamble byte, an inverted exhaust bit and `BIT_US = 800`.
 
 `tools/test-flash.py` runs on Linux only. On macOS it hangs for good in
 `termios.tcdrain()` on the pty: there is no real UART behind it, so the drain

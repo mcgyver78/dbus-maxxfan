@@ -68,4 +68,4 @@ jobs:
       - name: Encoder against the recorded remote signals
         run: |
           curl -fsSLO https://raw.githubusercontent.com/skypeachblue/maxxfan-reversing/main/Maxxfan_collection.ir
-          python3 tools/verify-encoder.py Maxxfan_collection.ir | tail -1
+          python3 tools/verify-encoder.py Maxxfan_collection.ir

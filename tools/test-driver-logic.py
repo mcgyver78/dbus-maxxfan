@@ -447,6 +447,22 @@ tx, port = mod.open_transmitter(["dbus-maxxfan.py", "/dev/b"], FakeSettings())
 check("a port named on the command line is flashed if it is bare",
       (flashed, port), (["/dev/b"], "/dev/b"))
 
+# The Celsius -> Fahrenheit rule. The fan stores Fahrenheit and its remote
+# shows Celsius, and the mapping truncates - the widely copied ESPHome
+# component rounds instead. verify-encoder.py cannot catch this: it decodes
+# Fahrenheit out of the captures and re-encodes Fahrenheit, so the conversion
+# never runs. Nothing else checked it either, so here it is.
+check("0 C is 32 F", mod.c_to_f(0), 32)
+check("21 C truncates to 69 F, not 70", mod.c_to_f(21), 69)
+check("25 C is 77 F", mod.c_to_f(25), 77)
+check("the range ends match the protocol's 29..99 F",
+      (mod.c_to_f(mod.MIN_C), mod.c_to_f(mod.MAX_C)), (29, 98))
+check("below the range clamps", mod.c_to_f(-40), mod.c_to_f(mod.MIN_C))
+check("above the range clamps", mod.c_to_f(99), mod.c_to_f(mod.MAX_C))
+check("rounding would differ on 18 of the 40 values",
+      sum(mod.c_to_f(c) != round(c * 1.8) + 32
+          for c in range(mod.MIN_C, mod.MAX_C + 1)), 18)
+
 print()
 if failures:
     print("%d check(s) failed" % len(failures))
